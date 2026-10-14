@@ -1,0 +1,37 @@
+# Keep the build context small and never ship secrets into the image.
+node_modules
+.next
+next-env.d.ts
+*.tsbuildinfo
+
+# env & secrets — NEVER copy these into the image
+.env
+.env*.local
+.env.local
+.env.production
+.secrets*
+*.pem
+
+# git & editor
+.git
+.gitignore
+.github
+.idea
+.vscode
+.DS_Store
+
+# docs / reports / local artifacts (not needed at runtime)
+docs
+artifacts
+coverage
+test-results
+playwright-report
+*.log
+temp_build_cache
+
+# supabase local stack (not part of the app image)
+supabase/.branches
+supabase/.temp
+
+# tests
+__tests__ e2e

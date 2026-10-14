@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs on the same branch when a new commit is pushed.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# NOTE: e2e tests are intentionally NOT run here (decision) — they
+# require a live Supabase DB + Circle sandbox env. Placeholder:
+#   - name: E2E
+#     run: npm run test:e2e
+#     env:
+#       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+#       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+#       NEXT_PUBLIC_CIRCLE_APP_ID: ${{ secrets.NEXT_PUBLIC_CIRCLE_APP_ID }}
+#       ... (plus UPSTASH_* and other live-service secrets)
+
+jobs:
+  quality:
+    name: lint + typecheck + test + contracts + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # Required by Next.js build (Supabase SSR / Circle envs are read at
+      # build time even when unused — placeholders let the build proceed).
+      NEXT_PUBLIC_CIRCLE_APP_ID: "ci-placeholder"
+      NEXT_PUBLIC_CIRCLE_BASE_URL: "https://api.circle.com"
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Every step below is a hard gate: no `|| true`, no continue-on-error,
+      # no tolerated failures. CI is green only when the whole repo is clean.
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Contract tests (hardhat)
+        run: npm run test:contracts
+
+      - name: Build
+        run: npm run build

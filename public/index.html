@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SlimeMarket — On-Chain Escrow Marketplace on Arc</title>
+<meta name="description" content="Buy digital assets without fear of scams. Every transaction is secured by smart-contract escrow on the Arc network." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          // Arc-inspired deep navy palette
+          arc: {
+            bg:       '#060A14',
+            surface:  '#0C1322',
+            surface2: '#111C33',
+            border:   '#1C2740',
+            borderlt: '#26355A',
+            primary:  '#2F6BFF',
+            primarydk:'#1E4FD9',
+            accent:   '#38BDF8',
+            text:     '#E6EDF7',
+            muted:    '#8A9BB8',
+            faint:    '#5A6B8C',
+          },
+        },
+        fontFamily: {
+          sans: ['Space Grotesk', 'ui-sans-serif', 'system-ui'],
+          display: ['Space Grotesk', 'ui-sans-serif'],
+          pixel: ['"Press Start 2P"', 'monospace'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        },
+        boxShadow: {
+          glow: '0 0 0 1px rgba(47,107,255,0.4), 0 8px 40px -8px rgba(47,107,255,0.45)',
+          'glow-accent': '0 0 0 1px rgba(56,189,248,0.4), 0 8px 40px -8px rgba(56,189,248,0.35)',
+          'glow-emerald': '0 0 0 1px rgba(16,185,129,0.4), 0 8px 40px -8px rgba(16,185,129,0.35)',
+        },
+      },
+    },
+  };
+</script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script src="/w3s-sdk-shim.js?v=20260927"></script>
+<link rel="stylesheet" href="/wallet-bridge.css">
+<!-- config.js first: wallet-bridge/bootstrap blocks read window.SLIME_CONFIG (env ids) -->
+<script src="/config.js"></script>
+<script src="/wallet-bridge.js"></script>
+
+<style>
+  html, body { background: #060A14; }
+  * { -webkit-font-smoothing: antialiased; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #1C2740; border-radius: 99px; border: 2px solid #060A14; }
+  ::-webkit-scrollbar-thumb:hover { background: #26355A; }
+  .pixelated { image-rendering: pixelated; }
+  @keyframes blobFloat { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-3px) } }
+  .blob-float { animation: blobFloat 3s ease-in-out infinite; }
+  @keyframes pulseGlow { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
+  .pulse-glow { animation: pulseGlow 2s ease-in-out infinite; }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(12px) scale(.98) } to { opacity: 1; transform: translateY(0) scale(1) } }
+  .anim-modal { animation: slideUp .22s cubic-bezier(.2,.8,.2,1); }
+  @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+  .anim-fade { animation: fadeIn .18s ease; }
+  @keyframes viewIn { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: translateY(0) } }
+  .anim-view { animation: viewIn .28s cubic-bezier(.2,.8,.2,1); }
+  .grid-noise { background-image: none; }
+  .scanlines { background-image: none; }
+  .arc-mesh { background:
+    radial-gradient(60% 60% at 15% 0%, rgba(47,107,255,.14), transparent 60%),
+    radial-gradient(50% 50% at 100% 10%, rgba(56,189,248,.10), transparent 55%),
+    radial-gradient(60% 80% at 50% 100%, rgba(30,79,217,.10), transparent 60%); }
+
+  /* Hover lift effect for cards & rows (shadcn/ui pattern) */
+  .hover-lift { transition: transform 0.15s ease-out, box-shadow 0.15s ease-out; }
+  .hover-lift:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(47,107,255,0.12); }
+  .hover-lift-row { transition: background-color 0.15s ease-out; }
+  .hover-lift-row:hover { background-color: rgba(47,107,255,0.03); }
+</style>
+</head>
+<body class="font-sans text-arc-text antialiased">
+  <script>
+    window.__PATH__ = window.location.pathname;
+    // .B — read the real ids from the server-served /config.js
+    // (window.SLIME_CONFIG).
+    // the old hardcoded fallback here was the PREVIOUS Circle account's
+    // app id. If CIRCLE_APP_ID was ever unset the browser silently drove UCW
+    // against a dead app id. Fail loudly instead: no app id → no UCW, and the
+    // sign-in screen reports it rather than half-working.
+    window.CIRCLE_APP_ID = (window.SLIME_CONFIG && window.SLIME_CONFIG.circleAppId) || '';
+    if (!window.CIRCLE_APP_ID) {
+      console.error('[config] CIRCLE_APP_ID is not set — UCW sign-in/PIN flows will fail. Set it in the server env.');
+    }
+    (function () {
+      // Force real Circle SDK flow even on localhost — Turnstile disabled (backend skips in dev).
+      // .B4: IS_LOCAL stays false — the browser always runs the REAL Circle
+      // flow. Mock/dev behavior is controlled SERVER-SIDE by CIRCLE_PAYMENTS_MOCK
+      // / FORCE_REAL_UCW (.A1), and Playwright automation authenticates via
+      // POST /api/auth/dev-login (never through this flag).
+      window.TURNSTILE_SITE_KEY = (window.SLIME_CONFIG && window.SLIME_CONFIG.turnstileSiteKey) || '';
+      window.IS_LOCAL = false;
+      // Phase 4.2 — non-custodial checkout flag. Default false (legacy custodial
+      // path). The FE fetches /api/health on boot to detect the server-side
+      // ONCHAIN_WALLET_FUNDS flag and updates this at runtime (see app.jsx boot).
+      window.ONCHAIN_FUNDS = false;
+    })();
+  </script>
+  <div id="root"></div>
+
+  <script type="text/babel" src="/data.jsx?v=20260813"></script>
+  <script type="text/babel" src="/data2.jsx?v=20260813"></script>
+  <script type="text/babel" src="/ui.jsx?v=20260813"></script>
+  <script type="text/babel" src="/i18n.jsx?v=20260813"></script>
+  <script type="text/babel" src="/router.jsx?v=20260813"></script>
+  <script type="text/babel" src="/storefront.jsx?v=20260813"></script>
+  <script type="text/babel" src="/landing.jsx?v=20260813"></script>
+  <script type="text/babel" src="/productdetail.jsx?v=20260813"></script>
+  <script type="text/babel" src="/orderroom.jsx?v=20260813"></script>
+  <script type="text/babel" src="/orders.jsx?v=20260813"></script>
+  <script type="text/babel" src="/rekber.jsx?v=20260813"></script>
+  <script type="text/babel" src="/wl.jsx?v=20260813"></script>
+  <script type="text/babel" src="/escrow.jsx?v=20260813"></script>
+  <script type="text/babel" src="/app-kit-helper.jsx?v=20260919"></script>
+  <script type="text/babel" src="/balance.jsx?v=20261006"></script>
+  <script type="text/babel" src="/chatdm.jsx?v=20260813"></script>
+  <script type="text/babel" src="/globalchat.jsx?v=20260813"></script>
+	<!-- Income dashboard charts & formatting utils -->
+	<!-- Recharts UMD declares its deps as (React, PropTypes, ReactDOM) and reads
+	     the browser globals directly: `t.Recharts = e(t.React, t.PropTypes, t.ReactDOM)`.
+	     Without prop-types loaded first, t.PropTypes is undefined and Recharts throws
+	     "Cannot read properties of undefined (reading 'oneOfType')" on load, which
+	     surfaces as a page error on every route. Load it BEFORE Recharts. -->
+	<script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js" crossorigin="anonymous"></script>
+	<script src="https://cdn.jsdelivr.net/npm/recharts@2.14.0/umd/Recharts.min.js" crossorigin="anonymous"></script>
+	<script type="text/babel" src="/format.jsx?v=20260811"></script>
+	<script type="text/babel" src="/income-chart.jsx?v=20260811"></script>
+  <script type="text/babel" src="/seller.jsx?v=20260813"></script>
+  <script type="text/babel" src="/sellerdash.jsx?v=20260813"></script>
+  <script type="text/babel" src="/admin.jsx?v=20260813"></script>
+  <script type="text/babel" src="/mm.jsx?v=20260813"></script>
+  <script type="text/babel" src="/auth.jsx?v=20260813"></script>
+  <script type="text/babel" src="/refresh-session.jsx?v=20260813"></script>
+  <script type="text/babel" src="/ucw-helper.jsx?v=20260813"></script>
+  <!-- Opsi A (2026-09-27): pin-status-badge.jsx + pin-management.jsx are no
+       longer loaded. Circle auto-provisions the PIN for authMode EMAIL accounts
+       (every account — email OTP is the only sign-in), so there is no user PIN
+       UI. Both files stay in the repo for a future PIN-based auth mode; restore
+       these two <script> tags to bring the UI back. -->
+  <script type="text/babel" src="/userdash.jsx?v=20260813"></script>
+  <script type="text/babel" src="/app.jsx?v=20260813"></script>
+</body>
+</html>

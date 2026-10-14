@@ -1,0 +1,78 @@
+# SlimeMarket — VPS deployment via Docker Compose.
+#
+# Two services from ONE image:
+#   web        → next start (published on 127.0.0.1:3000; put nginx/Caddy in front for TLS)
+#   scheduler  → node scripts/scheduler.js (the cron jobs that replaced Vercel crons)
+#
+# Bring it up (ALWAYS pass --env-file so ${...} build args resolve):
+#   docker compose --env-file .env.production up -d --build
+#
+# Update after a git pull:
+#   docker compose --env-file .env.production up -d --build
+#
+# Logs / status:
+#   docker compose logs -f web
+#   docker compose ps
+#
+# NOTE: .env.production is created from .env.example and is
+# gitignored. It holds BOTH the runtime secrets AND the NEXT_PUBLIC_* values
+# used as build args below.
+
+services:
+  web:
+    build:
+      context: .
+      args:
+        # Public (client-inlined) values — safe as build args.
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_CIRCLE_APP_ID: ${NEXT_PUBLIC_CIRCLE_APP_ID}
+        NEXT_PUBLIC_CIRCLE_BASE_URL: ${NEXT_PUBLIC_CIRCLE_BASE_URL}
+        NEXT_PUBLIC_AGENT_WALLET_ADDRESS: ${NEXT_PUBLIC_AGENT_WALLET_ADDRESS}
+        NEXT_PUBLIC_AGENT_WALLET_ID: ${NEXT_PUBLIC_AGENT_WALLET_ID}
+        NEXT_PUBLIC_USDC_CONTRACT_ADDRESS: ${NEXT_PUBLIC_USDC_CONTRACT_ADDRESS}
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY}
+    image: slimemarket:latest
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    # Bind to loopback only — a reverse proxy (nginx/Caddy) terminates TLS and
+    # forwards to 127.0.0.1:3000. Change to "3000:3000" only if you expose it directly.
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit([200,503].includes(r.status)?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  scheduler:
+    image: slimemarket:latest
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      # Same container network — reach the web app by service name.
+      INTERNAL_API_URL: http://web:3000
+    command: ["node", "scripts/scheduler.js"]
+    # This service runs `node scripts/scheduler.js` and serves NO HTTP, but it
+    # inherits the image's HEALTHCHECK, which fetches
+    # http://127.0.0.1:3000/api/health — a port nothing is listening on here.
+    # The check therefore always fails and the container reports "unhealthy"
+    # while every cron job is running fine. A status that always lies is worse
+    # than no status, so disable it. (It would also hang any future
+    # `depends_on: condition: service_healthy`.)
+    healthcheck:
+      disable: true
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
