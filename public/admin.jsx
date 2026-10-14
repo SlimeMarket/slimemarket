@@ -84,12 +84,9 @@ function AdminConsole({ notify }) {
   const [mmPinValue, setMmPinValue] = useState('');
   const [mmPinConfirm, setMmPinConfirm] = useState('');
   const [mmPinError, setMmPinError] = useState('');
-  // Admin PIN verification state - use ref for immediate access
+  // Admin action token ref — populated only when an older tab still calls
+  // /api/admin/verify; routes no longer REQUIRE it (session role is the gate).
   const adminTokenRef = useRef(null);
-  const [pinModal, setPinModal] = useState(null); // { action, payload }
-  const [pinInput, setPinInput] = useState('');
-  const [pinLoading, setPinLoading] = useState(false);
-  const [pinError, setPinError] = useState('');
 
   // Overview dashboard state
   const [dashboard, setDashboard] = useState(null);
@@ -130,36 +127,10 @@ function AdminConsole({ notify }) {
     return data;
   };
 
-  // Verify admin PIN and get action token
-  const verifyAdminPin = async (pin) => {
-    const res = await fetch(API + '/api/admin/verify', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin, challengeId: 'dev-bypass' }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'PIN verification failed');
-    adminTokenRef.current = data.adminToken;
-    // BUG FIX: the token used to live only in this component's ref, so the
-    // staff-gated buttons in the DEAL ROOM (app.jsx: Release / Refund / Slash /
-    // Cancel) never sent X-Admin-Token and always got 401. Publish it so those
-    // calls can authenticate too. Cleared on logout and when it expires.
-    try { window.__ADMIN_TOKEN = data.adminToken; } catch (e) {}
-    return data.adminToken;
-  };
-
-  // Execute action with PIN verification
-  const requireAdminAuth = (action, payload) => {
-    if (adminTokenRef.current) {
-      // Token exists, execute directly
-      return executeAdminAction(action, payload);
-    }
-    // Show PIN modal
-    setPinModal({ action, payload });
-    setPinInput('');
-    setPinError('');
-  };
+  // The admin-PIN step was REMOVED at the owner's request (hackathon
+  // speedrun): the Circle email-OTP session carrying the Admin role is the
+  // only gate — gated actions execute directly.
+  const requireAdminAuth = (action, payload) => executeAdminAction(action, payload);
 
   const executeAdminAction = async (action, payload) => {
     try {
@@ -195,25 +166,13 @@ function AdminConsole({ notify }) {
           await api('/api/admin/treasury/withdraw', { method: 'POST', body: JSON.stringify(payload) });
           notify('Treasury payout successful', 'success');
           setWithdrawModal(false);
-          setWithdrawForm({ recipientUserId: '', amountUsdc: '', memo: '', sourceAccount: 'gas_pool', adminPin: '' });
+          setWithdrawForm({ recipientUserId: '', amountUsdc: '', memo: '', sourceAccount: 'gas_pool' });
           setWithdrawPinError('');
           setWithdrawLockedUntil(null);
           setUserSearchResults([]);
           fetchTreasury();
         } catch (e) {
-          if (e.code === 'INVALID_PIN') {
-            setWithdrawPinError('Invalid admin PIN. ' + (e.payload?.attemptsRemaining ?? '?') + ' attempt(s) remaining.');
-          } else if (e.code === 'PIN_LOCKED') {
-            setWithdrawLockedUntil(e.payload?.lockedUntil || null);
-            setWithdrawPinError('Admin PIN locked. Try again ' + (e.payload?.lockedUntil ? 'after ' + new Date(e.payload.lockedUntil).toLocaleTimeString() : 'in 15 minutes') + '.');
-          } else if (e.code === 'ADMIN_PIN_NOT_SET') {
-            setWithdrawPinError(e.message || 'Set your admin PIN first.');
-          } else if (/admin token/i.test(e.message || '')) {
-            // Session token expired — re-run through the PIN modal flow.
-            throw e;
-          } else {
-            setWithdrawPinError('Withdrawal failed: ' + (e.message || 'unknown error'));
-          }
+          setWithdrawPinError('Withdrawal failed: ' + (e.message || 'unknown error'));
           return; // handled inline — do not surface the generic error toast
         }
       } else if (action === 'collectFees') {
@@ -234,32 +193,8 @@ function AdminConsole({ notify }) {
         fetchMiddlemen();
       }
     } catch (e) {
-      // Token expired? Clear it and show PIN modal
-      if (/admin token|unauthorized/i.test(e.message)) {
-        adminTokenRef.current = null;
-        try { window.__ADMIN_TOKEN = null; } catch (err) {}
-        setPinModal({ action, payload });
-        setPinInput('');
-        setPinError('Session expired. Re-enter PIN.');
-        return;
-      }
       notify('Action failed: ' + e.message, 'error');
     }
-  };
-
-  const handlePinSubmit = async () => {
-    if (!pinInput || pinInput.length < 4) { setPinError('PIN must be at least 4 digits'); return; }
-    setPinLoading(true);
-    setPinError('');
-    try {
-      await verifyAdminPin(pinInput);
-      const { action, payload } = pinModal;
-      setPinModal(null);
-      await executeAdminAction(action, payload);
-    } catch (e) {
-      setPinError(e.message);
-    }
-    setPinLoading(false);
   };
 
   useEffect(() => {
@@ -1473,62 +1408,15 @@ function AdminConsole({ notify }) {
                 className="w-full bg-arc-bg/60 ring-1 ring-arc-border focus:ring-emerald-500/40 rounded-xl px-3 py-2.5 text-sm text-arc-text placeholder-arc-faint outline-none" />
             </div>
 
-            {/* Admin PIN */}
-            <div>
-              <div className="text-xs uppercase tracking-wide text-arc-faint mb-2">Admin PIN</div>
-              <input type="password" inputMode="numeric" value={withdrawForm.adminPin}
-                onChange={e => { setWithdrawForm(f => ({ ...f, adminPin: e.target.value })); setWithdrawPinError(''); }}
-                placeholder="Admin PIN"
-                disabled={!!withdrawLockedUntil && new Date(withdrawLockedUntil) > new Date()}
-                className="w-full bg-arc-bg/60 ring-1 ring-arc-border focus:ring-emerald-500/40 rounded-xl px-3 py-2.5 text-sm text-arc-text placeholder-arc-faint outline-none tracking-[0.3em] disabled:opacity-50" />
-              <p className="text-[11px] text-arc-faint mt-1.5">Enter admin PIN to confirm payout.</p>
-              {withdrawPinError && <p className="text-xs text-rose-400 mt-1.5">{withdrawPinError}</p>}
-            </div>
-
             <div className="flex gap-3">
               <Btn variant="ghost" full onClick={() => { setWithdrawModal(false); setWithdrawPinError(''); setWithdrawLockedUntil(null); }}>Cancel</Btn>
-              <Btn variant="emerald" full icon="send" onClick={handleTreasuryWithdraw}
-                disabled={withdrawLoading || (!!withdrawLockedUntil && new Date(withdrawLockedUntil) > new Date())}>
-                {withdrawLoading ? 'Processing...' : (withdrawLockedUntil && new Date(withdrawLockedUntil) > new Date()) ? 'PIN Locked' : 'Send Payout'}
+              <Btn variant="emerald" full icon="send" onClick={handleTreasuryWithdraw} disabled={withdrawLoading}>
+                {withdrawLoading ? 'Processing...' : 'Send Payout'}
               </Btn>
             </div>
           </div>
         </Card>
       </Modal>
-
-      {/* === Admin PIN Verification Modal === */}
-      {pinModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setPinModal(null)}>
-          <Card className="p-6 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-rose-500/15 ring-1 ring-rose-500/30 flex items-center justify-center">
-                <Icon name="shield-alert" size={20} className="text-rose-400" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-arc-text">Admin Verification</h3>
-                <p className="text-xs text-arc-muted">Enter your admin PIN to continue</p>
-              </div>
-            </div>
-            <input
-              type="password"
-              value={pinInput}
-              onChange={e => { setPinInput(e.target.value); setPinError(''); }}
-              onKeyDown={e => e.key === 'Enter' && handlePinSubmit()}
-              placeholder="Enter admin PIN"
-              autoFocus
-              className="w-full bg-arc-bg/60 ring-1 ring-arc-border focus:ring-rose-500/50 rounded-xl px-4 py-3 text-center text-lg tracking-[0.3em] text-arc-text placeholder-arc-faint placeholder:tracking-normal outline-none mb-3"
-            />
-            {pinError && <p className="text-sm text-rose-400 mb-3 text-center">{pinError}</p>}
-            <div className="flex gap-2">
-              <Btn variant="ghost" full onClick={() => setPinModal(null)}>Cancel</Btn>
-              <Btn variant="danger" full icon="lock" onClick={handlePinSubmit} disabled={pinLoading}>
-                {pinLoading ? 'Verifying...' : 'Verify'}
-              </Btn>
-            </div>
-            <p className="text-[11px] text-arc-faint text-center mt-3">Token valid for 5 minutes after verification</p>
-          </Card>
-        </div>
-      )}
 
       {/* set/reset a middleman's PIN. Only an admin can do this, and
           without a PIN a promoted MM cannot pass /api/admin/verify, so the MM

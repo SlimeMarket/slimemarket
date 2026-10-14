@@ -63,12 +63,9 @@ function MiddlemanConsole({ wlDeals, onOpenDeal, notify }) {
   const [mmStats, setMmStats] = useState([]);
   const [mmStatsLoading, setMmStatsLoading] = useState(false);
   const [loadedTabs, setLoadedTabs] = useState(new Set());
-  // Admin PIN verification (same pattern as admin.jsx)
+  // Admin action token ref — routes no longer REQUIRE the token (session role
+  // is the gate), but an older tab may still mint one via /api/admin/verify.
   const adminTokenRef = useRef(null);
-  const [pinModal, setPinModal] = useState(null); // { action, payload }
-  const [pinInput, setPinInput] = useState('');
-  const [pinLoading, setPinLoading] = useState(false);
-  const [pinError, setPinError] = useState('');
 
   const API = window.SLIME_API || '';
   const api = async (path, opts = {}) => {
@@ -80,23 +77,9 @@ function MiddlemanConsole({ wlDeals, onOpenDeal, notify }) {
     return data;
   };
 
-  const verifyAdminPin = async (pin) => {
-    const res = await fetch(API + '/api/admin/verify', {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin, challengeId: 'dev-bypass' }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'PIN verification failed');
-    adminTokenRef.current = data.adminToken;
-    return data.adminToken;
-  };
-
-  const requireAdminAuth = (action, payload) => {
-    if (adminTokenRef.current) return executeMmAction(action, payload);
-    setPinModal({ action, payload });
-    setPinInput(''); setPinError('');
-  };
+  // PIN step-action token REMOVED at the owner's request: the session role
+  // (Admin/MM, Circle email OTP) is the only gate — actions execute directly.
+  const requireAdminAuth = (action, payload) => executeMmAction(action, payload);
 
   const executeMmAction = async (action, payload) => {
     try {
@@ -121,18 +104,6 @@ function MiddlemanConsole({ wlDeals, onOpenDeal, notify }) {
       }
     } catch (e) { notify('Action failed: ' + e.message, 'error'); }
     setResolving(null);
-  };
-
-  const handlePinSubmit = async () => {
-    if (!pinInput.trim()) { setPinError('Enter PIN'); return; }
-    setPinLoading(true); setPinError('');
-    try {
-      await verifyAdminPin(pinInput.trim());
-      const { action, payload } = pinModal;
-      setPinModal(null);
-      await executeMmAction(action, payload);
-    } catch (e) { setPinError(e.message); }
-    setPinLoading(false);
   };
 
   useEffect(() => {
@@ -338,27 +309,6 @@ function MiddlemanConsole({ wlDeals, onOpenDeal, notify }) {
               </div>
             </Card>
           )}
-        </div>
-      )}
-
-      {/* PIN verification modal */}
-      {pinModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setPinModal(null)}>
-          <Card className="p-6 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-arc-text mb-1">Admin Verification</h3>
-            <p className="text-xs text-arc-muted mb-4">Enter admin PIN to authorize this action. Token valid for 5 minutes.</p>
-            <input type="password" value={pinInput} onChange={e => setPinInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handlePinSubmit()}
-              placeholder="Admin PIN" autoFocus
-              className="w-full bg-arc-bg/60 ring-1 ring-arc-border focus:ring-arc-primary/50 rounded-xl px-3 py-2.5 text-sm text-arc-text placeholder-arc-faint outline-none mb-3" />
-            {pinError && <div className="text-xs text-rose-400 mb-3">{pinError}</div>}
-            <div className="flex gap-2">
-              <Btn variant="ghost" full onClick={() => setPinModal(null)}>Cancel</Btn>
-              <Btn variant="primary" full icon="shield-check" onClick={handlePinSubmit} disabled={pinLoading}>
-                {pinLoading ? 'Verifying...' : 'Verify & Execute'}
-              </Btn>
-            </div>
-          </Card>
         </div>
       )}
 

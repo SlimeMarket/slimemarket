@@ -295,8 +295,13 @@ export function verifyResetCode(userId: string, code: string): boolean {
 // ===== Route Guard =====
 
 /**
- * Require admin auth token (PIN + UCW verified) for sensitive actions.
- * Returns the admin user if valid, or a JSON error response.
+ * Require an Admin session for sensitive actions.
+ *
+ * The PIN + UCW step-action token was REMOVED at the owner's request
+ * (hackathon speedrun): the Circle email-OTP session carrying the Admin role
+ * is now the single gate. If a caller still sends X-Admin-Token (e.g. an
+ * older tab), it is validated and must match the session user — but it is
+ * optional.
  */
 export async function requireAdminAuth(req: Request): Promise<
   { user: CurrentUser; error: null } | { user: null; error: Response }
@@ -309,31 +314,23 @@ export async function requireAdminAuth(req: Request): Promise<
   }
 
   const token = req.headers.get("x-admin-token");
-  if (!token) {
-    return { user: null, error: jsonError("X-Admin-Token header required. Call POST /api/admin/verify first.", 401) };
-  }
-
-  const payload = verifyAdminToken(token);
-  if (!payload) {
-    return { user: null, error: jsonError("Invalid or expired admin token. Re-verify PIN + device.", 401) };
-  }
-
-  // Token must belong to the same user
-  if (payload.sub !== user.id) {
-    return { user: null, error: jsonError("Admin token does not match current session", 403) };
+  if (token) {
+    const payload = verifyAdminToken(token);
+    if (!payload) {
+      return { user: null, error: jsonError("Invalid or expired admin token.", 401) };
+    }
+    if (payload.sub !== user.id) {
+      return { user: null, error: jsonError("Admin token does not match current session", 403) };
+    }
   }
 
   return { user, error: null };
 }
 
 /**
- * 3 — Admin OR MM variant of requireAdminAuth for WL escrow
- * deal release/refund (the middleman queue). Same PIN + UCW token flow, but
- * the DB session role gate accepts Admin and MM instead of Admin only.
- *
- * Everything OUTSIDE app/api/wl/** (treasury, fees, disputes resolve, MM
- * PIN management, order refund) must keep requiring requireAdminAuth — MM
- * is an authorization role for WL deal decisions only.
+ * 3 — Admin OR MM variant for WL escrow deal release/refund.
+ * Same session-role gate (Admin||MM); the PIN step-action token was removed
+ * at the owner's request — a presented token is still validated but optional.
  */
 export async function requireStaffAuth(req: Request): Promise<
   { user: CurrentUser; error: null } | { user: null; error: Response }
@@ -349,18 +346,14 @@ export async function requireStaffAuth(req: Request): Promise<
   }
 
   const token = req.headers.get("x-admin-token");
-  if (!token) {
-    return { user: null, error: jsonError("X-Admin-Token header required. Call POST /api/admin/verify first.", 401) };
-  }
-
-  const payload = verifyAdminToken(token);
-  if (!payload) {
-    return { user: null, error: jsonError("Invalid or expired staff token. Re-verify PIN + device.", 401) };
-  }
-
-  // Token must belong to the same user
-  if (payload.sub !== user.id) {
-    return { user: null, error: jsonError("Staff token does not match current session", 403) };
+  if (token) {
+    const payload = verifyAdminToken(token);
+    if (!payload) {
+      return { user: null, error: jsonError("Invalid or expired staff token.", 401) };
+    }
+    if (payload.sub !== user.id) {
+      return { user: null, error: jsonError("Staff token does not match current session", 403) };
+    }
   }
 
   return { user, error: null };

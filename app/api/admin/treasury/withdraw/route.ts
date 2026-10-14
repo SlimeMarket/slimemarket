@@ -1,5 +1,5 @@
 import { jsonError, jsonOk } from "@/lib/utils";
-import { requireAdminAuth, checkAdminPin } from "@/lib/admin-auth";
+import { requireAdminAuth } from "@/lib/admin-auth";
 
 const PLATFORM_WALLET_ID = process.env.PLATFORM_CIRCLE_WALLET_ID ?? "";
 import { supabaseAdminClient } from "@/lib/supabase/admin-client";
@@ -13,12 +13,10 @@ import { CIRCLE_USDC_TOKEN_ID } from "@/lib/arc";
  * POST /api/admin/treasury/withdraw
  *
  * Withdraw from treasury (platform fees pool) to pay MM salary or operational costs.
- * Requires admin auth token (PIN + UCW verified) AND a FRESH per-action admin PIN
- * re-entry body.adminPin is verified against users.admin_pin_hash
- * BEFORE any treasury movement. 3 wrong entries → 15-min lockout.
+ * Requires an Admin session (Circle email OTP). The per-action admin PIN was
+ * REMOVED at the owner's request (hackathon speedrun).
  *
  * Body: {
- *   adminPin: string,            // REQUIRED — the acting admin's PIN, re-verified per request
  *   recipientUserId: string,     // user ID of MM/recipient
  *   amountUsdc: string,          // decimal USDC (e.g. "50.00")
  *   memo: string,                // reason (e.g. "MM salary July 2026")
@@ -42,59 +40,10 @@ export async function POST(req: Request) {
   const parsed = parseBody(TreasuryWithdrawBodySchema, body);
   if (parsed instanceof Response) return parsed;
 
-  // SECOND gate fresh per-action admin PIN — checked BEFORE any
-  // treasury movement. The acting admin's PIN state lives on their users row.
-  const rawBody = body as { adminPin?: unknown };
-  const adminPin = typeof rawBody.adminPin === "string" ? rawBody.adminPin : "";
-  if (!adminPin) {
-    return jsonError("adminPin is required — re-enter your admin PIN to confirm this withdrawal", 400, { code: "ADMIN_PIN_REQUIRED" });
-  }
+  // NOTE: the per-action admin PIN re-verification was REMOVED at the owner's
+  // request — the Admin session (Circle email OTP) is the single gate.
 
   const admin = supabaseAdminClient();
-  const { data: adminRow } = await admin
-    .from("users")
-    .select("admin_pin_hash, pin_attempts, pin_locked_until")
-    .eq("id", user.id)
-    .single();
-  if (!adminRow) return jsonError("admin user row not found", 403);
-
-  const pinCheck = await checkAdminPin({
-    storedHash: adminRow.admin_pin_hash ?? null,
-    attempts: (adminRow.pin_attempts as number) ?? 0,
-    lockedUntil: adminRow.pin_locked_until ?? null,
-    pin: adminPin,
-    now: new Date(),
-  });
-
-  if (!pinCheck.ok) {
-    if (pinCheck.code === "ADMIN_PIN_NOT_SET") {
-      return jsonError("Set your admin PIN first", 409, { code: "ADMIN_PIN_NOT_SET" });
-    }
-    if (pinCheck.code === "PIN_LOCKED") {
-      // Persist the fresh lockout when the 3rd failure triggered it.
-      if (((adminRow.pin_attempts as number) ?? 0) < 3 || !adminRow.pin_locked_until) {
-        await admin.from("users").update({
-          pin_attempts: 3,
-          pin_locked_until: pinCheck.lockedUntil,
-        }).eq("id", user.id);
-      }
-      return jsonError("PIN locked (3 failed attempts). Try again later or reset via email.", 423, {
-        code: "PIN_LOCKED",
-        lockedUntil: pinCheck.lockedUntil,
-      });
-    }
-    // INVALID_PIN — persist the incremented attempt count.
-    const newAttempts = (((adminRow.pin_attempts as number) ?? 0) + 1);
-    await admin.from("users").update({ pin_attempts: newAttempts }).eq("id", user.id);
-    return jsonError(`Invalid PIN. ${pinCheck.attemptsRemaining} attempt(s) remaining.`, 401, {
-      code: "INVALID_PIN",
-      attemptsRemaining: pinCheck.attemptsRemaining,
-    });
-  }
-
-  // Correct PIN — reset attempts/lockout, then proceed with the withdrawal.
-  await admin.from("users").update({ pin_attempts: 0, pin_locked_until: null }).eq("id", user.id);
-
   const source = parsed.sourceAccount ?? "gas_pool";
   const amountMicro = parseUsdc(parsed.amountUsdc);
   if (amountMicro <= 0n) return jsonError("amount must be positive", 400);

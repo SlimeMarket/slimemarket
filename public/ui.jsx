@@ -200,8 +200,11 @@ function Modal({ open, onClose, children, width = 'max-w-md' }) {
 }
 
 // ---- Card ----
-function Card({ children, className = '' }) {
-  return <div className={`bg-arc-surface/70 ring-1 ring-arc-border rounded-2xl ${className}`}>{children}</div>;
+// NOTE: `...rest` is REQUIRED — modals rely on <Card onClick={e => e.stopPropagation()}>
+// to keep backdrop-click-to-close from firing on every click inside the modal.
+// Without the spread the prop was silently dropped and every modal closed itself.
+function Card({ children, className = '', ...rest }) {
+  return <div className={`bg-arc-surface/70 ring-1 ring-arc-border rounded-2xl ${className}`} {...rest}>{children}</div>;
 }
 
 // ---- Copy chip ----
