@@ -17,6 +17,13 @@ const CHUNK_SIZE = 5000n;
  */
 const CHUNK_CONCURRENCY = 2;
 
+/**
+ * Pause between batches. The RPC also throttles eth_getLogs per time window
+ * (~800 calls/min observed): without pacing, the first ~400 chunks succeed
+ * and every later call in the same run is rejected until the window refills.
+ */
+const BATCH_DELAY_MS = 1000;
+
 /** Backoff schedule for a single chunk's two RPC calls (transient limits). */
 const CHUNK_RETRIES = 3;
 const CHUNK_RETRY_BASE_MS = 500;
@@ -165,6 +172,9 @@ export async function scanWalletHistory(
       if (rows) allTxs.push(...rows);
     }
     scannedUpTo = batch[batch.length - 1]!.to;
+    if (i + CHUNK_CONCURRENCY < chunks.length) {
+      await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
+    }
   }
 
   // Upsert discovered txs (idempotent)
