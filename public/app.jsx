@@ -632,15 +632,52 @@ function App() {
       // the same number; using the max() above would let a stale DB mirror make
       // the button look affordable and then fail server-side.
       ME.usdcOnChain = chainBal;
-      const mapped = (w.recentTx || []).map(t => ({
+      const dbMapped = (w.recentTx || []).map(t => ({
         id: t.id, type: t.type, label: t.label, sub: t.sub || '',
         // Same trap as the balance above: BigInt division would floor this.
         amount: Number(t.amount) / 1e6,
         time: new Date(t.createdAt).toLocaleString('id-ID', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }),
         status: t.status,
         txHash: t.onChainTxHash || t.txHash || null,
+        _ts: new Date(t.createdAt).getTime(),
       }));
-      setFiatTxs(mapped);
+      setFiatTxs(dbMapped);
+
+      // ── Enrich with chain-backed history (native USDC transfers from RPC) ──
+      try {
+        const ch = await api('/api/wallet/chain-history?sync=1');
+        const chainItems = (ch?.history || [])
+          .filter(h => h.source === 'chain')
+          .map(h => ({
+            id: `chain-${h.txHash}`,
+            type: h.direction,
+            label: h.label,
+            sub: h.direction === 'in'
+              ? `From ${h.from?.slice(0,6)}…${h.from?.slice(-4)}`
+              : `To ${h.to?.slice(0,6)}…${h.to?.slice(-4)}`,
+            amount: Number(h.amount) / 1e6,
+            time: new Date(h.createdAt).toLocaleString('id-ID', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }),
+            status: h.status,
+            txHash: h.txHash,
+            _ts: new Date(h.createdAt).getTime(),
+          }));
+        // Merge: DB wins on txHash conflict (it has richer labels/status)
+        const mergedMap = new Map();
+        for (const t of chainItems) {
+          if (t.txHash) mergedMap.set(t.txHash.toLowerCase(), t);
+          else mergedMap.set(t.id, t);
+        }
+        for (const t of dbMapped) {
+          if (t.txHash) mergedMap.set(t.txHash.toLowerCase(), t);
+          else mergedMap.set(t.id, t);
+        }
+        const merged = Array.from(mergedMap.values())
+          .sort((a, b) => b._ts - a._ts)
+          .map(({ _ts, ...rest }) => rest);
+        setFiatTxs(merged);
+      } catch (enrichErr) {
+        console.warn('[refreshWallet] chain-history enrich failed:', enrichErr.message);
+      }
     } catch (e) { console.warn('[refreshWallet] failed:', e.message); }
   };
   const refreshOrders = async () => {

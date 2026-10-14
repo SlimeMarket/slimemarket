@@ -1,0 +1,231 @@
+import { parseAbiItem, type Hex } from "viem";
+import { arcPublicClient, ARC_NATIVE_USDC_EMITTER } from "@/lib/arc";
+import { supabaseAdminClient } from "@/lib/supabase/admin-client";
+
+const TRANSFER_EVENT = parseAbiItem(
+  "event Transfer(address indexed from, address indexed to, uint256 value)",
+);
+
+/** Arc RPC range limit observed in practice (10k hard, 5k safe). */
+const CHUNK_SIZE = 5000n;
+
+/** How many chunks to scan in one request before yielding (partial mode). */
+const DEFAULT_MAX_CHUNKS = 20; // 20 × 5k = 100k blocks
+
+/** Fallback start block when a wallet has never been scanned. */
+const FALLBACK_START_BLOCK = BigInt(process.env.ESCROW_START_BLOCK ?? "0");
+
+/** Arc native USDC uses 18 decimals; the app DB stores micro-USDC (6 dp). */
+const DECIMALS_DIFF = 1_000_000_000_000n; // 10^(18-6)
+
+export interface ChainTx {
+  txHash: string;
+  blockNumber: bigint;
+  from: string;
+  to: string;
+  amountMicro: bigint;
+  direction: "in" | "out";
+}
+
+export interface ScanResult {
+  txs: ChainTx[];
+  scannedUpTo: bigint;
+  hasMore: boolean;
+}
+
+/**
+ * Incrementally scan native-USDC Transfer events for a single wallet address.
+ *
+ * - Resumes from `wallets.last_scanned_block` (or FALLBACK_START_BLOCK).
+ * - Stops at `head` or after `maxChunks` — whichever comes first.
+ * - Upserts rows into `wallet_chain_txs` and updates the resume cursor.
+ */
+export async function scanWalletHistory(
+  walletId: string,
+  address: string,
+  opts?: { maxChunks?: number },
+): Promise<ScanResult> {
+  const client = arcPublicClient();
+  const head = await client.getBlockNumber();
+  const checksumAddr = address.toLowerCase() as Hex;
+  const maxChunks = opts?.maxChunks ?? DEFAULT_MAX_CHUNKS;
+
+  const admin = supabaseAdminClient();
+  const { data: walletRow } = await admin
+    .from("wallets")
+    .select("last_scanned_block")
+    .eq("id", walletId)
+    .maybeSingle();
+
+  let fromBlock: bigint;
+  if (walletRow?.last_scanned_block != null) {
+    fromBlock = BigInt(walletRow.last_scanned_block) + 1n;
+  } else {
+    fromBlock = FALLBACK_START_BLOCK;
+    if (fromBlock > head) fromBlock = head > CHUNK_SIZE ? head - CHUNK_SIZE : 0n;
+  }
+
+  if (fromBlock > head) {
+    return { txs: [], scannedUpTo: head, hasMore: false };
+  }
+
+  const allTxs: ChainTx[] = [];
+  let chunksDone = 0;
+  let currentFrom = fromBlock;
+
+  while (currentFrom <= head && chunksDone < maxChunks) {
+    const toBlock = currentFrom + CHUNK_SIZE > head ? head : currentFrom + CHUNK_SIZE;
+
+    // Outgoing + incoming in parallel per chunk. viem auto-decodes args.
+    const [outLogs, inLogs] = await Promise.all([
+      client
+        .getLogs({
+          address: ARC_NATIVE_USDC_EMITTER,
+          event: TRANSFER_EVENT,
+          args: { from: checksumAddr },
+          fromBlock: currentFrom,
+          toBlock,
+        })
+        .catch(() => []),
+      client
+        .getLogs({
+          address: ARC_NATIVE_USDC_EMITTER,
+          event: TRANSFER_EVENT,
+          args: { to: checksumAddr },
+          fromBlock: currentFrom,
+          toBlock,
+        })
+        .catch(() => []),
+    ]);
+
+    for (const log of outLogs) {
+      if (!log.transactionHash || log.blockNumber == null) continue;
+      if (!log.args.from || !log.args.to || log.args.value == null) continue;
+      allTxs.push({
+        txHash: log.transactionHash,
+        blockNumber: log.blockNumber,
+        from: log.args.from,
+        to: log.args.to,
+        amountMicro: log.args.value / DECIMALS_DIFF,
+        direction: "out",
+      });
+    }
+
+    for (const log of inLogs) {
+      if (!log.transactionHash || log.blockNumber == null) continue;
+      if (!log.args.from || !log.args.to || log.args.value == null) continue;
+      allTxs.push({
+        txHash: log.transactionHash,
+        blockNumber: log.blockNumber,
+        from: log.args.from,
+        to: log.args.to,
+        amountMicro: log.args.value / DECIMALS_DIFF,
+        direction: "in",
+      });
+    }
+
+    currentFrom = toBlock + 1n;
+    chunksDone++;
+  }
+
+  // Upsert discovered txs (idempotent)
+  if (allTxs.length > 0) {
+    const rows = allTxs.map((t) => ({
+      wallet_id: walletId,
+      tx_hash: t.txHash,
+      block_number: Number(t.blockNumber),
+      from: t.from,
+      to: t.to,
+      amount: Number(t.amountMicro),
+      direction: t.direction,
+    }));
+
+    await admin
+      .from("wallet_chain_txs")
+      .upsert(rows, { onConflict: "wallet_id,tx_hash" });
+  }
+
+  const scannedUpTo = currentFrom - 1n;
+  await admin
+    .from("wallets")
+    .update({ last_scanned_block: Number(scannedUpTo) })
+    .eq("id", walletId);
+
+  const hasMore = scannedUpTo < head;
+  allTxs.sort((a, b) => (a.blockNumber > b.blockNumber ? -1 : 1));
+
+  return { txs: allTxs, scannedUpTo, hasMore };
+}
+
+/**
+ * Read cached chain history for a wallet (no RPC calls).
+ * Merges with wallet_txs so the UI sees a unified feed.
+ */
+export async function getUnifiedHistory(walletId: string, address: string) {
+  const admin = supabaseAdminClient();
+
+  const [{ data: chainRows }, { data: dbRows }] = await Promise.all([
+    admin
+      .from("wallet_chain_txs")
+      .select("tx_hash,block_number,from,to,amount,direction,scanned_at")
+      .eq("wallet_id", walletId)
+      .order("block_number", { ascending: false })
+      .limit(100),
+    admin
+      .from("wallet_txs")
+      .select("id,type,label,sub,amount,status,method,created_at,circle_tx_id,dest_address,metadata")
+      .eq("wallet_id", walletId)
+      .order("created_at", { ascending: false })
+      .limit(100),
+  ]);
+
+  const normalizedAddr = address.toLowerCase();
+
+  const chainItems = (chainRows ?? []).map((r) => ({
+    source: "chain" as const,
+    txHash: r.tx_hash,
+    blockNumber: r.block_number,
+    from: r.from,
+    to: r.to,
+    amount: String(r.amount),
+    direction: r.direction as "in" | "out",
+    label: r.direction === "in" ? "Receive" : "Send",
+    status: "done" as const,
+    createdAt: r.scanned_at,
+    dbId: null as string | null,
+  }));
+
+  const dbItems = (dbRows ?? []).map((r) => ({
+    source: "db" as const,
+    txHash: (r.metadata as any)?.arc_tx_hash ?? null,
+    blockNumber: null as number | null,
+    from: r.type === "out" ? normalizedAddr : (r.dest_address ?? null),
+    to: r.type === "in" ? normalizedAddr : (r.dest_address ?? null),
+    amount: String(r.amount),
+    direction: r.type as "in" | "out",
+    label: r.label,
+    status: r.status,
+    createdAt: r.created_at,
+    dbId: r.id,
+  }));
+
+  const byHash = new Map<string, (typeof chainItems)[0] | (typeof dbItems)[0]>();
+  for (const item of chainItems) {
+    if (item.txHash) byHash.set(item.txHash.toLowerCase(), item);
+  }
+  for (const item of dbItems) {
+    if (item.txHash) {
+      byHash.set(item.txHash.toLowerCase(), item);
+    } else {
+      byHash.set(`db-${item.dbId}`, item);
+    }
+  }
+
+  const merged = Array.from(byHash.values()).sort((a, b) => {
+    const ta = new Date(a.createdAt).getTime();
+    const tb = new Date(b.createdAt).getTime();
+    return tb - ta;
+  });
+
+  return merged;
+}
