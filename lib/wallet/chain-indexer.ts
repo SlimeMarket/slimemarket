@@ -9,6 +9,9 @@ const TRANSFER_EVENT = parseAbiItem(
 /** Arc RPC range limit observed in practice (10k hard, 5k safe). */
 const CHUNK_SIZE = 5000n;
 
+/** Chunks scanned in parallel per batch (2 RPC calls each). */
+const CHUNK_CONCURRENCY = 8;
+
 /** How many chunks to scan in one request before yielding (partial mode). */
 const DEFAULT_MAX_CHUNKS = 20; // 20 × 5k = 100k blocks
 
@@ -69,63 +72,81 @@ export async function scanWalletHistory(
     return { txs: [], scannedUpTo: head, hasMore: false };
   }
 
-  const allTxs: ChainTx[] = [];
-  let chunksDone = 0;
-  let currentFrom = fromBlock;
+  // Build the chunk list up-front so batches can run in parallel.
+  const chunks: { from: bigint; to: bigint }[] = [];
+  {
+    let f = fromBlock;
+    while (f <= head && chunks.length < maxChunks) {
+      const t = f + CHUNK_SIZE > head ? head : f + CHUNK_SIZE;
+      chunks.push({ from: f, to: t });
+      f = t + 1n;
+    }
+  }
 
-  while (currentFrom <= head && chunksDone < maxChunks) {
-    const toBlock = currentFrom + CHUNK_SIZE > head ? head : currentFrom + CHUNK_SIZE;
-
-    // Outgoing + incoming in parallel per chunk. viem auto-decodes args.
-    const [outLogs, inLogs] = await Promise.all([
-      client
-        .getLogs({
+  /** One chunk → txs, or null when the RPC failed (so the cursor does NOT advance past it). */
+  const scanChunk = async (c: { from: bigint; to: bigint }): Promise<ChainTx[] | null> => {
+    try {
+      const [outLogs, inLogs] = await Promise.all([
+        client.getLogs({
           address: ARC_NATIVE_USDC_EMITTER,
           event: TRANSFER_EVENT,
           args: { from: checksumAddr },
-          fromBlock: currentFrom,
-          toBlock,
-        })
-        .catch(() => []),
-      client
-        .getLogs({
+          fromBlock: c.from,
+          toBlock: c.to,
+        }),
+        client.getLogs({
           address: ARC_NATIVE_USDC_EMITTER,
           event: TRANSFER_EVENT,
           args: { to: checksumAddr },
-          fromBlock: currentFrom,
-          toBlock,
-        })
-        .catch(() => []),
-    ]);
+          fromBlock: c.from,
+          toBlock: c.to,
+        }),
+      ]);
 
-    for (const log of outLogs) {
-      if (!log.transactionHash || log.blockNumber == null) continue;
-      if (!log.args.from || !log.args.to || log.args.value == null) continue;
-      allTxs.push({
-        txHash: log.transactionHash,
-        blockNumber: log.blockNumber,
-        from: log.args.from,
-        to: log.args.to,
-        amountMicro: log.args.value / DECIMALS_DIFF,
-        direction: "out",
-      });
+      const rows: ChainTx[] = [];
+      for (const log of outLogs) {
+        if (!log.transactionHash || log.blockNumber == null) continue;
+        if (!log.args.from || !log.args.to || log.args.value == null) continue;
+        rows.push({
+          txHash: log.transactionHash,
+          blockNumber: log.blockNumber,
+          from: log.args.from,
+          to: log.args.to,
+          amountMicro: log.args.value / DECIMALS_DIFF,
+          direction: "out",
+        });
+      }
+      for (const log of inLogs) {
+        if (!log.transactionHash || log.blockNumber == null) continue;
+        if (!log.args.from || !log.args.to || log.args.value == null) continue;
+        rows.push({
+          txHash: log.transactionHash,
+          blockNumber: log.blockNumber,
+          from: log.args.from,
+          to: log.args.to,
+          amountMicro: log.args.value / DECIMALS_DIFF,
+          direction: "in",
+        });
+      }
+      return rows;
+    } catch {
+      return null;
     }
+  };
 
-    for (const log of inLogs) {
-      if (!log.transactionHash || log.blockNumber == null) continue;
-      if (!log.args.from || !log.args.to || log.args.value == null) continue;
-      allTxs.push({
-        txHash: log.transactionHash,
-        blockNumber: log.blockNumber,
-        from: log.args.from,
-        to: log.args.to,
-        amountMicro: log.args.value / DECIMALS_DIFF,
-        direction: "in",
-      });
+  const allTxs: ChainTx[] = [];
+  // Cursor only advances over CONTIGUOUS scanned ranges, so a failed chunk is
+  // retried on the next run instead of being silently skipped forever.
+  let scannedUpTo = fromBlock - 1n;
+
+  for (let i = 0; i < chunks.length; i += CHUNK_CONCURRENCY) {
+    const batch = chunks.slice(i, i + CHUNK_CONCURRENCY);
+    const results = await Promise.all(batch.map(scanChunk));
+    if (results.some((r) => r === null)) break; // stop; retry from scannedUpTo next time
+    for (const rows of results) {
+      if (rows) allTxs.push(...rows);
     }
-
-    currentFrom = toBlock + 1n;
-    chunksDone++;
+    scannedUpTo = batch[batch.length - 1]!.to;
   }
 
   // Upsert discovered txs (idempotent)
@@ -145,7 +166,6 @@ export async function scanWalletHistory(
       .upsert(rows, { onConflict: "wallet_id,tx_hash" });
   }
 
-  const scannedUpTo = currentFrom - 1n;
   await admin
     .from("wallets")
     .update({ last_scanned_block: Number(scannedUpTo) })
