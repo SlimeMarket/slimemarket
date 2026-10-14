@@ -9,11 +9,17 @@ const TRANSFER_EVENT = parseAbiItem(
 /** Arc RPC range limit observed in practice (10k hard, 5k safe). */
 const CHUNK_SIZE = 5000n;
 
-/** Chunks scanned in parallel per batch (2 RPC calls each). */
-const CHUNK_CONCURRENCY = 8;
+/**
+ * Chunks scanned in parallel per batch (2 RPC calls each).
+ *
+ * Measured on Arc testnet: the RPC rejects with "Request exceeds defined limit"
+ * once more than ~8 eth_getLogs calls are in flight, so 3 chunks (6 calls) is
+ * the safe ceiling. Higher just burns chunks on 429-style failures.
+ */
+const CHUNK_CONCURRENCY = 3;
 
 /** How many chunks to scan in one request before yielding (partial mode). */
-const DEFAULT_MAX_CHUNKS = 20; // 20 × 5k = 100k blocks
+const DEFAULT_MAX_CHUNKS = 10; // 10 × 5k = 50k blocks per refresh
 
 /** Fallback start block when a wallet has never been scanned. */
 const FALLBACK_START_BLOCK = BigInt(process.env.ESCROW_START_BLOCK ?? "0");
@@ -141,11 +147,21 @@ export async function scanWalletHistory(
 
   for (let i = 0; i < chunks.length; i += CHUNK_CONCURRENCY) {
     const batch = chunks.slice(i, i + CHUNK_CONCURRENCY);
-    const results = await Promise.all(batch.map(scanChunk));
-    if (results.some((r) => r === null)) break; // stop; retry from scannedUpTo next time
-    for (const rows of results) {
-      if (rows) allTxs.push(...rows);
+    let results = await Promise.all(batch.map(scanChunk));
+
+    if (results.some((r) => r === null)) {
+      // One retry, sequentially, before giving up on this range — transient
+      // RPC concurrency limits must not stall the cursor forever.
+      results = [];
+      for (const c of batch) {
+        results.push(await scanChunk(c));
+        if (results[results.length - 1] === null) break; // still failing → stop here
+      }
+      if (results.some((r) => r === null)) break; // cursor stays at scannedUpTo; retried next run
     }
+
+    const pushed = results.filter((r): r is ChainTx[] => r !== null);
+    for (const rows of pushed) allTxs.push(...rows);
     scannedUpTo = batch[batch.length - 1]!.to;
   }
 
