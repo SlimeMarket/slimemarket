@@ -56,6 +56,39 @@ const DEAL_STATUSES = ["WAITING", "ESCROW", "COMPLETED", "DISPUTED"] as const;
  */
 const SETTLED_ONCHAIN_STATES = ["RELEASED", "REFUNDED"] as const;
 
+/**
+ * Record that escrow creation can never succeed for this order and restock.
+ *
+ * Only safe because the Circle tx is TERMINALLY failed — no USDC ever moved,
+ * so there is nothing to refund. The stock pop is undone (instant orders) so
+ * the seller's credentials are not held hostage by a dead order.
+ */
+async function markOrderCreateFailed(
+  admin: ReturnType<typeof supabaseAdminClient>,
+  orderId: string,
+  reason: string,
+): Promise<void> {
+  const { error: rpcErr } = await admin.rpc("restock_instant_order", {
+    p_order_id: orderId,
+    p_target_status: "CANCELLED",
+  });
+  if (rpcErr) {
+    // Manual orders have no stock to restock — fall back to a plain status flip.
+    await admin
+      .from("orders")
+      .update({
+        status: "CANCELLED",
+        cancel_reason: "escrow creation failed on-chain — no funds were moved",
+      })
+      .eq("id", orderId);
+  }
+  await admin
+    .from("orders")
+    .update({ on_chain_status: "create_failed", on_chain_error: reason.slice(0, 500) })
+    .eq("id", orderId);
+  logger.warn({ orderId }, "onchain-ids: escrow creation terminally failed — order cancelled");
+}
+
 export async function reconcileMissingOnchainIds(): Promise<OnchainIdReconcileResult> {
   const admin = supabaseAdminClient();
 
@@ -110,8 +143,15 @@ export async function reconcileMissingOnchainIds(): Promise<OnchainIdReconcileRe
         ordersResolved++;
         logger.info({ orderId: row.id, onChainOrderId: orderId }, "onchain-ids: order id resolved");
       } catch (e) {
+        const msg = (e as Error).message || "";
+        // A Circle tx that FAILED/never mined will never yield a contract id.
+        // Marking those orders up-front stops this job retrying them every run
+        // forever (they filled the log and made `stillPending` meaningless).
+        if (/terminal-failed/i.test(msg)) {
+          await markOrderCreateFailed(admin, row.id, msg);
+        }
         stillPending++;
-        logger.error({ orderId: row.id, err: (e as Error).message }, "onchain-ids: order resolve threw");
+        logger.error({ orderId: row.id, err: msg }, "onchain-ids: order resolve threw");
       }
     }
   }

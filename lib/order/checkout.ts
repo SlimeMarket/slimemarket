@@ -5,6 +5,7 @@ import { getOrder } from "./queries";
 import {
   createOrderOnChain,
   createOrderForOnChain,
+  waitForEscrowAllowance,
   isContractReady,
   MARKETPLACE_DELIVERY_WINDOW_SECONDS,
   type PermitSig,
@@ -702,6 +703,25 @@ export async function confirmCheckoutOrder(
   let onChainTxHash: string | null = null;
   let createCircleTxId: string | undefined;
   let relaySucceeded = false;
+
+  // Wait for the buyer's `approve` to actually exist on-chain BEFORE relaying
+  // createOrderFor. Without this the relayer submits while allowance is still 0,
+  // the contract's transferFrom reverts during gas estimation, and Circle marks
+  // the tx FAILED / ESTIMATION_ERROR — no funds move, yet the order advanced.
+  if (!input.permit) {
+    const allowance = await waitForEscrowAllowance(
+      buyerAddress,
+      itemAmountMicro + buyerFeeMicro,
+    );
+    if (allowance < itemAmountMicro + buyerFeeMicro) {
+      const err = new Error(
+        `escrow allowance not confirmed on-chain: have ${allowance.toString()} micro, need ${(itemAmountMicro + buyerFeeMicro).toString()} micro. No funds were moved — please retry.`,
+      ) as Error & { httpStatus: number; code: string };
+      err.httpStatus = 502;
+      err.code = "PAYMENT_NOT_MOVED";
+      throw err;
+    }
+  }
 
   try {
     const result = await createOrderForOnChain({

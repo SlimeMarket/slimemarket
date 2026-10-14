@@ -1,6 +1,6 @@
 import { circleDeveloperSdk } from "@/lib/circle/client";
 import { CIRCLE_USDC_TOKEN_ID } from "@/lib/arc";
-import { arcPublicClient } from "@/lib/arc";
+import { arcPublicClient, ARC_USDC_CONTRACT } from "@/lib/arc";
 import { formatUsdc } from "@/lib/money";
 import type { Hex } from "viem";
 
@@ -36,6 +36,61 @@ export async function callContract(
     id: resp.data?.id ?? "",
     state: resp.data?.state ?? "UNKNOWN",
   };
+}
+
+const ERC20_ALLOWANCE_ABI = [
+  {
+    type: "function",
+    name: "allowance",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ type: "uint256" }],
+  },
+] as const;
+
+/**
+ * Wait until the escrow contract's allowance over `buyer` covers `required`.
+ *
+ * WHY THIS EXISTS: the frontend sends the buyer's USDC `approve` and then used
+ * to sleep a fixed 3 seconds before calling confirm. A Circle UCW approve goes
+ * through a PIN challenge, so 3s is routinely not enough for it to mine — the
+ * relayer then submitted `createOrderFor` while `allowance(buyer, escrow)` was
+ * still 0, the contract's `transferFrom` reverted during gas estimation, and
+ * Circle reported the tx as FAILED / ESTIMATION_ERROR. The buyer was charged
+ * nothing but the order still advanced, so nothing could ever be released.
+ *
+ * Polling the chain is the honest fix: it works for EOA approve txs, UCW
+ * challenges, and any future signing path, without trusting a client-side delay.
+ */
+export async function waitForEscrowAllowance(
+  buyer: string,
+  requiredMicro: bigint,
+  opts?: { timeoutMs?: number; intervalMs?: number },
+): Promise<bigint> {
+  const timeoutMs = opts?.timeoutMs ?? 90_000;
+  const intervalMs = opts?.intervalMs ?? 3_000;
+  const client = arcPublicClient();
+  const deadline = Date.now() + timeoutMs;
+  let last = 0n;
+
+  while (Date.now() < deadline) {
+    try {
+      last = (await client.readContract({
+        address: ARC_USDC_CONTRACT,
+        abi: ERC20_ALLOWANCE_ABI,
+        functionName: "allowance",
+        args: [buyer as Hex, ESCROW_CONTRACT_ADDRESS as Hex],
+      })) as bigint;
+      if (last >= requiredMicro) return last;
+    } catch {
+      // transient RPC error — keep polling until the deadline
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return last;
 }
 
 export async function sendUsdc(
