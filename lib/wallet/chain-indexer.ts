@@ -12,17 +12,20 @@ const CHUNK_SIZE = 5000n;
 /**
  * Chunks scanned in parallel per batch (2 RPC calls each).
  *
- * Measured on Arc testnet: the RPC rejects with "Request exceeds defined limit"
- * once more than ~8 eth_getLogs calls are in flight, so 3 chunks (6 calls) is
- * the safe ceiling. Higher just burns chunks on 429-style failures.
+ * Measured on Arc testnet: the RPC answers "Request exceeds defined limit"
+ * beyond ~8 concurrent eth_getLogs calls, so keep in-flight well under that.
  */
-const CHUNK_CONCURRENCY = 3;
+const CHUNK_CONCURRENCY = 2;
+
+/** Backoff schedule for a single chunk's two RPC calls (transient limits). */
+const CHUNK_RETRIES = 3;
+const CHUNK_RETRY_BASE_MS = 500;
+
+/** First-ever scan looks back this far (≈ days on Arc), not from genesis. */
+const FIRST_SCAN_WINDOW = 50_000n;
 
 /** How many chunks to scan in one request before yielding (partial mode). */
 const DEFAULT_MAX_CHUNKS = 10; // 10 × 5k = 50k blocks per refresh
-
-/** Fallback start block when a wallet has never been scanned. */
-const FALLBACK_START_BLOCK = BigInt(process.env.ESCROW_START_BLOCK ?? "0");
 
 /** Arc native USDC uses 18 decimals; the app DB stores micro-USDC (6 dp). */
 const DECIMALS_DIFF = 1_000_000_000_000n; // 10^(18-6)
@@ -45,7 +48,7 @@ export interface ScanResult {
 /**
  * Incrementally scan native-USDC Transfer events for a single wallet address.
  *
- * - Resumes from `wallets.last_scanned_block` (or FALLBACK_START_BLOCK).
+ * - Resumes from `wallets.last_scanned_block` (or a bounded recent window).
  * - Stops at `head` or after `maxChunks` — whichever comes first.
  * - Upserts rows into `wallet_chain_txs` and updates the resume cursor.
  */
@@ -70,8 +73,10 @@ export async function scanWalletHistory(
   if (walletRow?.last_scanned_block != null) {
     fromBlock = BigInt(walletRow.last_scanned_block) + 1n;
   } else {
-    fromBlock = FALLBACK_START_BLOCK;
-    if (fromBlock > head) fromBlock = head > CHUNK_SIZE ? head - CHUNK_SIZE : 0n;
+    // Never scanned: look back a bounded window instead of walking from
+    // genesis — walking 2.3M blocks would take minutes and time out the UI.
+    // Wallets with pre-window history keep those txs in wallet_txs (DB) anyway.
+    fromBlock = head > FIRST_SCAN_WINDOW ? head - FIRST_SCAN_WINDOW : 0n;
   }
 
   if (fromBlock > head) {
@@ -89,8 +94,11 @@ export async function scanWalletHistory(
     }
   }
 
-  /** One chunk → txs, or null when the RPC failed (so the cursor does NOT advance past it). */
-  const scanChunk = async (c: { from: bigint; to: bigint }): Promise<ChainTx[] | null> => {
+  /** One chunk → txs, or null after all retries failed (cursor does NOT advance past it). */
+  const scanChunk = async (
+    c: { from: bigint; to: bigint },
+    attempt = 0,
+  ): Promise<ChainTx[] | null> => {
     try {
       const [outLogs, inLogs] = await Promise.all([
         client.getLogs({
@@ -136,7 +144,11 @@ export async function scanWalletHistory(
       }
       return rows;
     } catch {
-      return null;
+      // Arc RPC answers "Request exceeds defined limit" when too many
+      // eth_getLogs are in flight / too fast. Back off and retry.
+      if (attempt >= CHUNK_RETRIES) return null;
+      await new Promise((r) => setTimeout(r, CHUNK_RETRY_BASE_MS * 2 ** attempt));
+      return scanChunk(c, attempt + 1);
     }
   };
 
@@ -147,21 +159,11 @@ export async function scanWalletHistory(
 
   for (let i = 0; i < chunks.length; i += CHUNK_CONCURRENCY) {
     const batch = chunks.slice(i, i + CHUNK_CONCURRENCY);
-    let results = await Promise.all(batch.map(scanChunk));
-
-    if (results.some((r) => r === null)) {
-      // One retry, sequentially, before giving up on this range — transient
-      // RPC concurrency limits must not stall the cursor forever.
-      results = [];
-      for (const c of batch) {
-        results.push(await scanChunk(c));
-        if (results[results.length - 1] === null) break; // still failing → stop here
-      }
-      if (results.some((r) => r === null)) break; // cursor stays at scannedUpTo; retried next run
+    const results = await Promise.all(batch.map((c) => scanChunk(c)));
+    if (results.some((r) => r === null)) break; // persistent failure; retried next run
+    for (const rows of results) {
+      if (rows) allTxs.push(...rows);
     }
-
-    const pushed = results.filter((r): r is ChainTx[] => r !== null);
-    for (const rows of pushed) allTxs.push(...rows);
     scannedUpTo = batch[batch.length - 1]!.to;
   }
 
