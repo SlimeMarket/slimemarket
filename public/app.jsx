@@ -327,6 +327,9 @@ function App() {
   // action to auto-retry once the PIN gate completes (e.g. the
   // checkout that hit 422 PIN_SETUP_REQUIRED). One-shot, cleared after use.
   const pinRetryRef = useRef(null);
+  // In-flight guard for buyer "confirm received" (prevents a double submit that
+  // used to surface "order status DONE cannot release" after a stale-looking UI).
+  const confirmingRef = useRef(null);
 
   // Auto-load catalog on mount (regardless of auth)
   useEffect(() => {
@@ -1249,6 +1252,11 @@ function App() {
     setSelOrder(o => o && o.id === id ? { ...o, ...patch } : o);
   };
   const handleConfirm = async (order) => {
+    // Guard against a double submit: the UI used to look stale after the first
+    // click, so the buyer clicked again and got "order status DONE cannot
+    // release" — an error for work that had already succeeded.
+    if (confirmingRef.current === order.id) return;
+    confirmingRef.current = order.id;
     try {
       await api('/api/orders/' + order.id + '/confirm', { method: 'POST' });
       await refreshOrders(); await refreshWallet();
@@ -1257,7 +1265,17 @@ function App() {
       pushNotif({ icon: 'check-check', tone: 'emerald', title: 'Order Confirmed', text: order.id + ' · on-chain release in progress', go: 'orders' });
       notify('Order confirmed. On-chain release in progress.', 'success');
       setReviewOrder({ ...order, status: 'DONE' });
-    } catch (e) { notify('Confirm failed: ' + e.message, 'error'); }
+    } catch (e) {
+      // Already settled by an earlier click — treat as success, not failure.
+      if (/cannot release/i.test(e.message || '')) {
+        updateOrder(order.id, { status: 'DONE' });
+        setReviewOrder({ ...order, status: 'DONE' });
+        notify('Order already confirmed.', 'success');
+      } else {
+        notify('Confirm failed: ' + e.message, 'error');
+      }
+    }
+    confirmingRef.current = null;
   };
   const handleReviewSubmit = async (order, review) => {
     try {
@@ -2098,7 +2116,7 @@ function App() {
             ? <SellerOrderPage order={sellerOrders.find(o => o.id === selSellerOrder)} onBack={back} onAdvance={handleAdvance} onDecline={setDeclineOrder} onSend={sellerSend} onChat={openOrderChat} notify={notify} />
             : <SellerLocked onApply={() => setApplyOpen(true)} />)}
           {view === 'admin' && (role === 'Admin'
-            ? <AdminConsole notify={notify} />
+            ? <AdminConsole notify={notify} onChat={openOrderChat} />
             : <SellerLocked onApply={() => setApplyOpen(true)} />)}
           {view === 'mm' && ((role === 'Admin' || role === 'MM')
             ? <MiddlemanConsole wlDeals={wlDeals} onOpenDeal={openDeal} notify={notify} />

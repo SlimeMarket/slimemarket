@@ -14,11 +14,16 @@ const PRODUCT_GLYPHS = ['💳', '◈', '▣', '◉', '✦', '⬡', '⛩', '✶',
 
 function stockCount(p) {
   if (p.delivery === 'instant') {
-    // Prefer per-variant stock (sum of variantStock map) when present.
-    if (p.variantStock && Object.keys(p.variantStock).length > 0) {
-      return Object.values(p.variantStock).reduce((a, b) => a + (b || 0), 0);
+    // Accept BOTH shapes: /api/my/products returns SNAKE_CASE
+    // (`variant_stocks` / `stock_items`) straight from the DB mapper, while
+    // mock/demo fixtures and older call sites use camelCase. Reading only the
+    // camelCase names made every seller see "0 STOCK" even with stock loaded.
+    const vs = p.variantStock ?? p.variant_stocks;
+    if (vs && Object.keys(vs).length > 0) {
+      return Object.values(vs).reduce((a, b) => a + (b || 0), 0);
     }
-    return p.stockItems ? p.stockItems.length : 0;
+    const items = p.stockItems ?? p.stock_items;
+    return items ? items.length : 0;
   }
   return (p.stock || 0);
 }

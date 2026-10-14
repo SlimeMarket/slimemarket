@@ -49,6 +49,14 @@ export async function confirmOrder(orderId: string, user: CurrentUser) {
   const { data: pre } = await admin.from("orders")
     .select("status, amount, on_chain_order_id").eq("id", orderId).maybeSingle();
   if (!pre) throw new Error("order not found");
+
+  // IDEMPOTENT retry: the buyer's first click already settled this order, but
+  // the UI looked stale, so they clicked "Done" again and got
+  // "order status DONE cannot release (expected one of: SENT)" — an error for
+  // work that had in fact succeeded. Settling again would also risk a second
+  // releaseOrder relay, so a DONE order short-circuits to success.
+  if ((pre.status as string) === "DONE") return;
+
   guardTransition(pre.status as string, ["SENT"], "release");
 
   // the settlement RAIL is a property of the ORDER, not of the

@@ -36,7 +36,7 @@ function SkelRow({ cols = 4 }) {
   );
 }
 
-function AdminConsole({ notify }) {
+function AdminConsole({ notify, onChat }) {
   const [tab, setTab] = useState('apps');
   const [apps, setApps] = useState([]);
   const [log, setLog] = useState([]);
@@ -1080,9 +1080,11 @@ function AdminConsole({ notify }) {
                     Buyer: {d.buyerName} · Seller: {d.sellerName} · Amount: {Number(d.amount) / 1000000} USDC
                   </div>
                   {d.reason && <div className="text-[12px] text-arc-muted mt-1">Reason: {d.reason}</div>}
-                  {d.chatThreadId && (
-                    <a href={'/chat'} onClick={(e) => { e.preventDefault(); window.SlimeRouter?.pushPath?.('dm', {}); }} className="text-[11px] text-arc-accent hover:brightness-125 mt-1 inline-block">Open Tribunal Chat →</a>
-                  )}
+                  {/* Was window.SlimeRouter.pushPath('dm') — that only rewrites the
+                      URL and never updates the SPA view, so the link looked dead.
+                      onChat resolves the order's real thread and navigates to it. */}
+                  <button type="button" onClick={() => onChat?.({ id: d.orderId })}
+                    className="text-[11px] text-arc-accent hover:brightness-125 mt-1 inline-block">Open Tribunal Chat →</button>
                 </div>
                 <div className="flex gap-2 ml-auto">
                   <Btn size="sm" variant="danger" icon="undo-2" onClick={() => setResolveTarget({ orderId: d.orderId, decision: 'refund' })}>Refund Buyer</Btn>
