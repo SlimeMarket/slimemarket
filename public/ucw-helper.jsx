@@ -59,6 +59,21 @@ window.executeUcwChallenge = async function executeUcwChallenge(challengeId, opt
     });
     sdk.setAuthentication({ userToken: creds.userToken, encryptionKey: creds.encryptionKey });
 
+    // Circle's own guidance: `sdk.execute()` SILENTLY FAILS unless
+    // `getDeviceId()` has established a session with the Circle service first.
+    // Best-effort — if the device handshake fails we still try the challenge so
+    // the user is never hard-blocked by it.
+    try {
+      if (typeof sdk.getDeviceId === 'function') {
+        const deviceIdP = sdk.getDeviceId();
+        if (deviceIdP && typeof deviceIdP.catch === 'function') {
+          deviceIdP.catch(() => {}); // ignore — best effort
+        }
+      }
+    } catch (gdErr) {
+      console.warn('[ucw] getDeviceId skipped:', gdErr && gdErr.message);
+    }
+
     // .B4 — "Forgot PIN" in the hosted UI → refresh-session escape hatch
     // (re-runs OTP, gets a fresh userToken; handles Circle error 155104).
     // No-op-safe: older SDK builds without setOnForgotPin just skip it.

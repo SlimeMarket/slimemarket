@@ -183,39 +183,69 @@
       this._receivedResponseFromService = true;
       var iframe = this._window.document.getElementById('sdkIframe');
       if (iframe && iframe.contentWindow) {
-        // FIX: match official @circle-fin/w3s-pw-web-sdk message shape.
-        // The old shim sent socialVerification/emailVerification with empty
-        // values, which confused the Circle auth page and left it stuck in
-        // skeleton state. Official SDK only sends: appSettings, auth,
-        // challenge, customizations, deviceInfo.
-        var payload = {
-          w3s: {
-            appSettings: this._configs ? this._configs.appSettings : undefined,
-            auth: this._configs ? this._configs.authentication : undefined,
-            challenge: this._challenge,
-            customizations: {
-              securityQuestions: {
-                questions: this._securityQuestions,
-                requiredCount: this._securityQuestionsRequiredCount,
-                securityConfirmItems: this._securityConfirmItems
-              },
-              themeColor: undefined,
-              localizations: undefined,
-              resources: undefined,
-              customLinks: undefined,
-              ssoSettings: undefined
+        var lc = (this._configs && this._configs.loginConfigs) || {};
+        var w3sPayload = {
+          appSettings: this._configs ? this._configs.appSettings : undefined,
+          auth: this._configs ? this._configs.authentication : undefined,
+          challenge: this._challenge,
+          customizations: {
+            securityQuestions: {
+              questions: this._securityQuestions,
+              requiredCount: this._securityQuestionsRequiredCount,
+              securityConfirmItems: this._securityConfirmItems
             },
-            deviceInfo: this._deviceInfo
-          }
+            themeColor: undefined,
+            localizations: undefined,
+            resources: undefined,
+            customLinks: undefined,
+            ssoSettings: undefined
+          },
+          deviceInfo: this._deviceInfo
         };
-        iframe.contentWindow.postMessage(payload, this._serviceUrl);
+        // CONDITIONAL: only send verification data relevant to the CURRENT
+        // flow. OTP verify needs emailVerification; social login needs
+        // socialVerification. Sending BOTH with empty values confuses the
+        // Circle hosted UI (blank skeleton state).
+        if (this._challenge) {
+          // Challenge execution (create wallet / PIN setup / tx sign)
+          // → no verification context needed
+        } else if (lc.otpToken) {
+          // Email OTP verification flow
+          w3sPayload.emailVerification = {
+            deviceToken: lc.deviceToken,
+            deviceEncryptionKey: lc.deviceEncryptionKey,
+            otpToken: lc.otpToken
+          };
+        } else if (lc.deviceToken) {
+          // Social login flow
+          w3sPayload.socialVerification = {
+            token: this._socialLoginToken,
+            deviceToken: lc.deviceToken,
+            deviceEncryptionKey: lc.deviceEncryptionKey,
+            socialLoginProvider: this._socialLoginProvider
+          };
+        }
+        iframe.contentWindow.postMessage({ w3s: w3sPayload }, this._serviceUrl);
       }
     } else if (data.onForgotPin) {
       if (this._onForgotPin) this._onForgotPin();
     } else if (data.onComplete) {
       var iframe2 = this._window.document.getElementById('sdkIframe');
       if (iframe2 && iframe2.parentNode) iframe2.parentNode.removeChild(iframe2);
-      if (this._onComplete) this._onComplete(undefined, data.result);
+      // FIX: Circle sends `{ onComplete: true }` with NO result when the hosted
+      // UI was dismissed, failed to render, or the user closed it. The old code
+      // passed that straight through as a SUCCESS, so the app toasted
+      // "Your PIN is set" while no PIN was set and no wallet existed. Treat an
+      // empty/absent result as a failure so callers can fall back correctly.
+      var res = data.result;
+      var looksEmpty = !res || (typeof res === 'object' && Object.keys(res).length === 0);
+      if (looksEmpty) {
+        if (this._onComplete) {
+          this._onComplete({ code: 155706, message: 'Challenge not completed' }, undefined);
+        }
+      } else {
+        if (this._onComplete) this._onComplete(undefined, res);
+      }
     } else if (data.deviceId) {
       if (this._resolveDeviceIdPromise) this._resolveDeviceIdPromise(data.deviceId);
       this._closeModal();
