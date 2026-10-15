@@ -324,23 +324,33 @@ function AuthScreen({ onAuthed }) {
       if (!result) {
         // null = no valid UCW session; leave it to the in-app retry path.
         console.warn('[auth] wallet challenge returned null — will retry in app');
+        window.__SLIME_WALLET_ERR = 'wallet challenge returned null (no UCW session)';
         return;
       }
       // Tell the server to read the new wallet back from Circle and persist it.
       try {
-        await fetch(API + '/api/wallet/ucw-provisioning-complete', {
+        const pc = await fetch(API + '/api/wallet/ucw-provisioning-complete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: '{}',
           credentials: 'include',
         });
+        if (!pc.ok) {
+          const body = await pc.json().catch(() => ({}));
+          console.warn('[auth] provisioning-complete failed:', pc.status, body);
+          window.__SLIME_WALLET_ERR = 'provisioning-complete HTTP ' + pc.status + ': ' + (body.error || '');
+        }
       } catch (e2) {
         console.warn('[auth] provisioning-complete failed (wallet still created):', e2.message);
+        window.__SLIME_WALLET_ERR = 'provisioning-complete threw: ' + e2.message;
       }
     } catch (e) {
       // Never block login on a failed wallet challenge — the user can finish
-      // setup from Profile / at first checkout.
-      console.warn('[auth] wallet setup deferred:', e && e.message);
+      // setup from Profile / at first checkout. Surface the reason visibly so
+      // it can be reported without opening DevTools.
+      const msg = (e && e.message) ? e.message : String(e);
+      console.warn('[auth] wallet setup deferred:', msg);
+      window.__SLIME_WALLET_ERR = msg;
     }
   };
 

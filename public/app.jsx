@@ -324,6 +324,11 @@ function App() {
   // straight through (no gate).
   const [pinGate, setPinGate] = useState(null); // { challengeId } | null
   const [pinGateBusy, setPinGateBusy] = useState(false);
+  // LAZY wallet setup: a wallet-creation challenge reported by /api/auth/me but
+  // NOT shown as a blocking gate at boot. It is kept here so wallet-dependent
+  // actions (Send / checkout) can open the Circle hosted UI on demand instead
+  // of forcing every new user through a popup right after sign-in.
+  const [pendingWalletChallenge, setPendingWalletChallenge] = useState(null); // { challengeId, action } | null
   // .C — one-tap dismissal of the boot PIN gate. Skipped users browse +
   // pay via external wallet (no PIN needed). The gate re-arms on next reload,
   // and choosing Slime Wallet checkout prompts it again (422 PIN_SETUP_REQUIRED).
@@ -417,6 +422,13 @@ function App() {
         refreshWlListings();
         refreshWlDeals();
         refreshBanks();
+
+        // Surface any wallet-setup error captured during login (auth.jsx sets
+        // window.__SLIME_WALLET_ERR) so it is visible without DevTools.
+        if (window.__SLIME_WALLET_ERR) {
+          notify('Wallet setup error: ' + window.__SLIME_WALLET_ERR, 'error');
+          window.__SLIME_WALLET_ERR = null;
+        }
 
         // LAZY wallet-setup: instead of a blocking gate, store the challenge
         // and only prompt when the user actually needs a wallet (checkout,

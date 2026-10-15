@@ -119,7 +119,13 @@
     var host = this._window.location.host;
     var fullDomainWithProtocol = protocol + '//' + host;
 
-    this._iframe.src = this._serviceUrl + '/' + subRoute + '?origin=' + encodeURIComponent(fullDomainWithProtocol);
+    // FIX: the official @circle-fin/w3s-pw-web-sdk appends the origin RAW, not
+    // URL-encoded (`?origin=https://slimemarket.app`). This shim used
+    // encodeURIComponent, producing `?origin=https%3A%2F%2Fslimemarket.app`.
+    // Circle's hosted UI validates postMessage senders against this value, so an
+    // encoded origin never matches the real parent origin — the config payload
+    // is dropped and the hosted UI closes/blanks. Match the official SDK exactly.
+    this._iframe.src = this._serviceUrl + '/' + subRoute + '?origin=' + fullDomainWithProtocol;
     this._iframe.id = 'sdkIframe';
     this._iframe.width = showIframe ? '100%' : '0%';
     this._iframe.height = showIframe ? '100%' : '0%';
@@ -178,6 +184,16 @@
 
     var data = event.data;
     if (!data) return;
+
+    // Debug aid: surface the message keys Circle sends back so a failed/blank
+    // hosted UI can be diagnosed from the browser console. Kept terse on purpose.
+    try {
+      if (typeof console !== 'undefined' && console.debug) {
+        var keys = Object.keys(data);
+        console.debug('[W3S \u2190 circle]', keys.join(','),
+          data.error ? ('error=' + JSON.stringify(data.error)) : '');
+      }
+    } catch (e) { /* logging must never throw */ }
 
     if (data.onFrameReady) {
       this._receivedResponseFromService = true;
