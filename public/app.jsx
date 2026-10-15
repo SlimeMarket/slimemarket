@@ -430,13 +430,14 @@ function App() {
           window.__SLIME_WALLET_ERR = null;
         }
 
-        // LAZY wallet-setup: instead of a blocking gate, store the challenge
-        // and only prompt when the user actually needs a wallet (checkout,
-        // send, withdraw). They can browse and explore the app freely.
+        // WALLET SETUP: /api/auth/me reliably reports the Circle wallet
+        // challenge (unlike the login response, which can omit it when the
+        // Circle status probe fails). Open the blocking gate so the hosted UI
+        // actually runs — without it a new user ends up wallet-less forever.
+        // Once the wallet exists the gate never appears again.
         if (data.needsPinSetup && data.pinSetupChallengeId && typeof window.executeUcwChallenge === 'function') {
           setPendingWalletChallenge({ challengeId: data.pinSetupChallengeId, action: data.pinSetupAction || 'full-challenge' });
-          // Non-blocking toast so they know wallet setup is pending
-          notify(tr('pin.lazySetup', 'One more step: finish wallet setup to start buying and selling.'), 'info');
+          setPinGate({ challengeId: data.pinSetupChallengeId, action: data.pinSetupAction || 'full-challenge' });
         } else if (data.needsPinSetup) {
           notify(tr('pin.bootIncomplete', 'Wallet setup incomplete — retry from Profile'), 'warn');
         }

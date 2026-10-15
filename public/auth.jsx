@@ -315,8 +315,16 @@ function AuthScreen({ onAuthed }) {
   // created in the same step. On every later login the user already has a
   // wallet, so needsPinSetup is false and nothing is shown.
   const maybeRunPinSetup = async (d) => {
-    if (!d || !d.needsPinSetup || !d.pinSetupChallengeId) return;
-    if (typeof window.executeUcwChallenge !== 'function') return;
+    if (!d) { window.__SLIME_WALLET_ERR = 'unified returned no body'; return; }
+    if (!d.needsPinSetup) {
+      window.__SLIME_WALLET_ERR = 'unified had no needsPinSetup (keys: ' + Object.keys(d).join(',') + ')';
+      return;
+    }
+    if (!d.pinSetupChallengeId) { window.__SLIME_WALLET_ERR = 'unified: needsPinSetup but no challengeId'; return; }
+    if (typeof window.executeUcwChallenge !== 'function') {
+      window.__SLIME_WALLET_ERR = 'executeUcwChallenge not loaded yet';
+      return;
+    }
 
     try {
       setOtpError(tr('pin.walletCreating', 'Creating your wallet on Arc…'));
