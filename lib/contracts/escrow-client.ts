@@ -1,11 +1,62 @@
 import { circleDeveloperSdk } from "@/lib/circle/client";
 import { CIRCLE_USDC_TOKEN_ID } from "@/lib/arc";
-import { arcPublicClient, ARC_USDC_CONTRACT } from "@/lib/arc";
+import { arcPublicClient, ARC_USDC_CONTRACT, ARC_CHAIN_ID, ARC_RPC_URL } from "@/lib/arc";
 import { formatUsdc } from "@/lib/money";
 import type { Hex } from "viem";
+import { createWalletClient, http, parseAbi } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { arc as arcChain } from "viem/chains";
 
 const ESCROW_CONTRACT_ADDRESS = process.env.ESCROW_CONTRACT_ADDRESS ?? "";
 const PLATFORM_CIRCLE_WALLET_ID = process.env.PLATFORM_CIRCLE_WALLET_ID ?? "";
+
+/**
+ * Deployer EOA relayer.
+ *
+ * WHY: the platform DCW is an **SCA**, and Circle routes every SCA transaction
+ * through the Gas Station paymaster. On MAINNET that requires a manually
+ * created + activated paymaster policy, and Circle bills the developer's card
+ * for the sponsored gas (+5%). Without the policy the relay fails outright
+ * ("Entity needs to setup paymaster policy in developer console…"), so no order
+ * could ever be funded.
+ *
+ * The deployer key is an EOA that is already registered as a `middleman` on the
+ * escrow contract — which satisfies `onlyOperator` — and it pays gas from its
+ * own USDC balance (USDC is Arc's native gas token). Signing the operator calls
+ * with viem therefore needs NO paymaster and NO Circle DCW.
+ *
+ * Set DEPLOYER_PRIVATE_KEY to enable. When absent we fall back to the Circle
+ * DCW path so nothing breaks on testnet.
+ */
+const DEPLOYER_PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY ?? "";
+
+const ESCROW_WRITE_ABI = parseAbi([
+  "function createOrderFor(address,address,uint256,uint256,uint256,uint8,bytes32,bytes32) returns (uint256)",
+  "function releaseOrder(uint256)",
+  "function refundOrder(uint256)",
+]);
+
+export function hasDeployerRelayer(): boolean {
+  return !!DEPLOYER_PRIVATE_KEY;
+}
+
+function deployerWallet() {
+  if (!DEPLOYER_PRIVATE_KEY) return null;
+  const key = (DEPLOYER_PRIVATE_KEY.startsWith("0x")
+    ? DEPLOYER_PRIVATE_KEY
+    : `0x${DEPLOYER_PRIVATE_KEY}`) as Hex;
+  const account = privateKeyToAccount(key);
+  const chain = { ...arcChain, id: ARC_CHAIN_ID, rpcUrls: { default: { http: [ARC_RPC_URL] } } };
+  return createWalletClient({ account, chain, transport: http(ARC_RPC_URL) });
+}
+
+/** Result of a relayed operator call. `txHash` is set when sent via the EOA. */
+export interface RelayResult {
+  id: string;
+  state: string;
+  txHash?: Hex;
+  viaEoa?: boolean;
+}
 
 const TX_OPTS = { fee: { type: "level" as const, config: { feeLevel: "LOW" as const } } };
 
@@ -156,9 +207,32 @@ export async function createOrderForOnChain(params: {
   amountMicro: bigint;
   deliveryWindowSeconds: number;
   permit: PermitSig;
-}) {
+}): Promise<RelayResult | null> {
   if (!isContractReady()) return null;
   const { buyer, seller, amountMicro, deliveryWindowSeconds, permit } = params;
+
+  // Preferred: sign with the deployer EOA (no paymaster, gas from its own USDC).
+  const wallet = deployerWallet();
+  if (wallet) {
+    const hash = await wallet.writeContract({
+      address: ESCROW_CONTRACT_ADDRESS as Hex,
+      abi: ESCROW_WRITE_ABI,
+      functionName: "createOrderFor",
+      args: [
+        buyer as Hex,
+        seller as Hex,
+        amountMicro,
+        BigInt(deliveryWindowSeconds),
+        BigInt(permit.deadline),
+        permit.v,
+        permit.r as Hex,
+        permit.s as Hex,
+      ],
+    });
+    return { id: hash, state: "SENT", txHash: hash, viaEoa: true };
+  }
+
+  // Fallback: Circle DCW relay (testnet default policy covers gas).
   return callContract(
     PLATFORM_CIRCLE_WALLET_ID,
     "createOrderFor(address,address,uint256,uint256,uint256,uint8,bytes32,bytes32)",
@@ -175,14 +249,35 @@ export async function createOrderForOnChain(params: {
   );
 }
 
-export async function releaseOrderOnChain(orderId: string, mmWalletId: string) {
+/**
+ * Send an `onlyOperator` escrow call. Prefers the deployer EOA (no paymaster);
+ * falls back to the Circle DCW wallet when no deployer key is configured.
+ */
+async function sendOperatorTx(
+  functionName: "releaseOrder" | "refundOrder",
+  args: [bigint],
+  fallbackWalletId: string,
+): Promise<RelayResult | null> {
   if (!isContractReady()) return null;
-  return callContract(mmWalletId, "releaseOrder(uint256)", [orderId]);
+  const wallet = deployerWallet();
+  if (wallet) {
+    const hash = await wallet.writeContract({
+      address: ESCROW_CONTRACT_ADDRESS as Hex,
+      abi: ESCROW_WRITE_ABI,
+      functionName,
+      args,
+    });
+    return { id: hash, state: "SENT", txHash: hash, viaEoa: true };
+  }
+  return callContract(fallbackWalletId, `${functionName}(uint256)`, args.map(String));
 }
 
-export async function refundOrderOnChain(orderId: string, mmWalletId: string) {
-  if (!isContractReady()) return null;
-  return callContract(mmWalletId, "refundOrder(uint256)", [orderId]);
+export async function releaseOrderOnChain(orderId: string, mmWalletId: string): Promise<RelayResult | null> {
+  return sendOperatorTx("releaseOrder", [BigInt(orderId)], mmWalletId);
+}
+
+export async function refundOrderOnChain(orderId: string, mmWalletId: string): Promise<RelayResult | null> {
+  return sendOperatorTx("refundOrder", [BigInt(orderId)], mmWalletId);
 }
 
 /** Seller marks the order delivered, starting the buyer's confirmation clock. */

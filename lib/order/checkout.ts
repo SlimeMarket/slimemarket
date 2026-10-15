@@ -10,7 +10,7 @@ import {
   MARKETPLACE_DELIVERY_WINDOW_SECONDS,
   type PermitSig,
 } from "@/lib/contracts/escrow-client";
-import { resolveOrderIdFromCircleTx } from "@/lib/contracts/resolver";
+import { resolveOrderIdFromCircleTx, resolveOrderIdFromTxHash } from "@/lib/contracts/resolver";
 import {
   readUsdcPermitInfo,
   resolveConfirmPayer,
@@ -735,10 +735,19 @@ export async function confirmCheckoutOrder(
     createCircleTxId = result.id;
     relaySucceeded = true;
 
-    // Resolve the REAL contract orderId (numeric, from OrderCreated event).
-    const resolved = await resolveOrderIdFromCircleTx(result.id, { timeoutMs: 60_000 });
-    onChainOrderId = resolved.orderId;
-    onChainTxHash = resolved.txHash;
+    if (result.viaEoa && result.txHash) {
+      // Relayed directly by the deployer EOA — we already have the on-chain
+      // hash, so wait for the receipt and read the OrderCreated id from it.
+      // (No Circle tx to poll; this path needs no paymaster.)
+      await arcPublicClient().waitForTransactionReceipt({ hash: result.txHash, timeout: 60_000 });
+      onChainTxHash = result.txHash;
+      onChainOrderId = await resolveOrderIdFromTxHash(result.txHash);
+    } else {
+      // Resolve the REAL contract orderId (numeric, from OrderCreated event).
+      const resolved = await resolveOrderIdFromCircleTx(result.id, { timeoutMs: 60_000 });
+      onChainOrderId = resolved.orderId;
+      onChainTxHash = resolved.txHash;
+    }
   } catch (e) {
     // the relay failed. Previously this was swallowed as "non-fatal"
     // and the route still returned 200, so the UI told the buyer "Payment
