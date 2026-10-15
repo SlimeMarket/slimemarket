@@ -418,22 +418,14 @@ function App() {
         refreshWlDeals();
         refreshBanks();
 
-        // BLOCKING PIN-setup gate: the backend now evaluates
-        // pinStatus for EVERY real session (legacy gate removed). If it
-        // offers a challenge, show the full-screen gate; the user can't use
-        // the app until the PIN is set (Circle hosted UI: Create PIN →
-        // Verify ×2 → security questions). Skips when the SDK shim is absent
-        // (dev-token sessions never receive a challenge anyway).
+        // LAZY wallet-setup: instead of a blocking gate, store the challenge
+        // and only prompt when the user actually needs a wallet (checkout,
+        // send, withdraw). They can browse and explore the app freely.
         if (data.needsPinSetup && data.pinSetupChallengeId && typeof window.executeUcwChallenge === 'function') {
-          // .C — respect this session's one-tap skip (Circle-style UX:
-          // external wallet path needs no PIN). Re-arms after reload/logout.
-          // CRITICAL FIX: users without ANY wallet must NEVER skip the gate —
-          // browsing is useless without a wallet address. Only allow skip when
-          // a wallet already exists (legacy PIN-unset accounts).
-          if (!data.walletAddress || !pinGateSkipped) setPinGate({ challengeId: data.pinSetupChallengeId, action: data.pinSetupAction || 'full-challenge' });
+          setPendingWalletChallenge({ challengeId: data.pinSetupChallengeId, action: data.pinSetupAction || 'full-challenge' });
+          // Non-blocking toast so they know wallet setup is pending
+          notify(tr('pin.lazySetup', 'One more step: finish wallet setup to start buying and selling.'), 'info');
         } else if (data.needsPinSetup) {
-          // No SDK available (should not happen outside dev) — surface a
-          // soft warning; boot gate stays closed so the app remains usable.
           notify(tr('pin.bootIncomplete', 'Wallet setup incomplete — retry from Profile'), 'warn');
         }
       })

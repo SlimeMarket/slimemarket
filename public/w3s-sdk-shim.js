@@ -183,8 +183,12 @@
       this._receivedResponseFromService = true;
       var iframe = this._window.document.getElementById('sdkIframe');
       if (iframe && iframe.contentWindow) {
-        var lc = (this._configs && this._configs.loginConfigs) || {};
-        iframe.contentWindow.postMessage({
+        // FIX: match official @circle-fin/w3s-pw-web-sdk message shape.
+        // The old shim sent socialVerification/emailVerification with empty
+        // values, which confused the Circle auth page and left it stuck in
+        // skeleton state. Official SDK only sends: appSettings, auth,
+        // challenge, customizations, deviceInfo.
+        var payload = {
           w3s: {
             appSettings: this._configs ? this._configs.appSettings : undefined,
             auth: this._configs ? this._configs.authentication : undefined,
@@ -194,22 +198,17 @@
                 questions: this._securityQuestions,
                 requiredCount: this._securityQuestionsRequiredCount,
                 securityConfirmItems: this._securityConfirmItems
-              }
+              },
+              themeColor: undefined,
+              localizations: undefined,
+              resources: undefined,
+              customLinks: undefined,
+              ssoSettings: undefined
             },
-            deviceInfo: this._deviceInfo,
-            socialVerification: {
-              token: this._socialLoginToken,
-              deviceToken: lc.deviceToken,
-              deviceEncryptionKey: lc.deviceEncryptionKey,
-              socialLoginProvider: this._socialLoginProvider
-            },
-            emailVerification: {
-              deviceToken: lc.deviceToken,
-              deviceEncryptionKey: lc.deviceEncryptionKey,
-              otpToken: lc.otpToken
-            }
+            deviceInfo: this._deviceInfo
           }
-        }, this._serviceUrl);
+        };
+        iframe.contentWindow.postMessage(payload, this._serviceUrl);
       }
     } else if (data.onForgotPin) {
       if (this._onForgotPin) this._onForgotPin();
