@@ -37,6 +37,8 @@ export async function GET() {
       const creds = await getUcwCredentials();
       if (creds) {
         const status = await getCircleUserStatus(creds.userToken);
+        // DEBUG: log so we can verify Circle email-auth really sets pinStatus=ENABLED
+        console.log("[auth/me] pinStatus=", status.pinStatus, "hasWallet=", !!user.walletAddress && !!user.circleWalletId && user.circleWalletId !== "pending-provisioning", "uid=", user.uid);
         const decision = decideProvisioning({
           pinStatus: status.pinStatus,
           // BUG FIX: dev-login writes the literal placeholder
@@ -48,7 +50,10 @@ export async function GET() {
           // "full-challenge", the app only asks for a PIN, and the wallet is
           // never provisioned. Real UCW login then keeps failing with
           // "wallet not created yet" / an empty Circle wallet list.
-          hasWallet: !!user.circleWalletId && user.circleWalletId !== "pending-provisioning",
+          // FIX: a wallet row with a placeholder id but null address is NOT a
+          // real wallet. Use walletAddress (the on-chain address) as the source
+          // of truth for "does this user have a wallet?".
+          hasWallet: !!user.walletAddress && !!user.circleWalletId && user.circleWalletId !== "pending-provisioning",
         });
         const challenge = await challengeForProvisioningAction(decision, creds.userToken);
         if (challenge) {
