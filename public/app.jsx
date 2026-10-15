@@ -427,7 +427,10 @@ function App() {
         if (data.needsPinSetup && data.pinSetupChallengeId && typeof window.executeUcwChallenge === 'function') {
           // .C — respect this session's one-tap skip (Circle-style UX:
           // external wallet path needs no PIN). Re-arms after reload/logout.
-          if (!pinGateSkipped) setPinGate({ challengeId: data.pinSetupChallengeId, action: data.pinSetupAction || 'full-challenge' });
+          // CRITICAL FIX: users without ANY wallet must NEVER skip the gate —
+          // browsing is useless without a wallet address. Only allow skip when
+          // a wallet already exists (legacy PIN-unset accounts).
+          if (!data.walletAddress || !pinGateSkipped) setPinGate({ challengeId: data.pinSetupChallengeId, action: data.pinSetupAction || 'full-challenge' });
         } else if (data.needsPinSetup) {
           // No SDK available (should not happen outside dev) — surface a
           // soft warning; boot gate stays closed so the app remains usable.
