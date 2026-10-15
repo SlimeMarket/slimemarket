@@ -40,3 +40,11 @@ alter table public.wallets
 
 comment on column public.wallets.last_scanned_block is
   'Highest block number already scanned for this wallet’s on-chain USDC history. NULL = never scanned.';
+
+-- ---------------------------------------------------------------------------
+-- Lock-down (same as 0091): RLS on, nothing granted to anon/authenticated.
+-- The app only touches this table through the service-role key.
+-- ---------------------------------------------------------------------------
+alter table public.wallet_chain_txs enable row level security;
+
+revoke all on public.wallet_chain_txs from anon, authenticated;

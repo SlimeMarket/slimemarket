@@ -37,7 +37,6 @@ const TX_HISTORY = []; // populated by refreshWallet() from API
 const NAV_BUYER = [
   { id: 'beranda', label: 'Home', icon: 'home', desc: 'Landing' },
   { id: 'storefront', label: 'Explore', icon: 'store', desc: 'Product catalog' },
-  { id: 'escrow', label: 'Escrow', icon: 'shield-check', desc: 'WL & P2P Escrow' },
   { id: 'discussion', label: 'Discussion', icon: 'messages-square', desc: 'Public forum' },
   { id: 'seller', label: 'Seller Center', icon: 'layout-dashboard', desc: 'Seller dashboard' },
 ];
@@ -46,14 +45,22 @@ const NAV_BUYER = [
 const PROFILE_MENU = [
   { id: 'profile', label: 'My Profile', icon: 'user-round' },
   { id: 'orders', label: 'My Orders', icon: 'package-open' },
-  { id: 'escrow', label: 'My Escrow', icon: 'shield-check' },
   { id: 'dm', label: 'Chat', icon: 'message-circle' },
   { id: 'balance', label: 'Top Up Balance', icon: 'wallet' },
 ];
 
+/**
+ * WL deals + P2P escrow (rekber) are parked as "coming soon" for the mainnet
+ * push — the marketplace flow (checkout → escrow-protected order → release)
+ * is the thing being shipped, and WL still has open bugs. Views listed here
+ * are hidden from nav and render a Coming soon panel if linked directly.
+ */
+const COMING_SOON_VIEWS = ['escrow', 'wl', 'rekber'];
+const COMING_SOON = new Set(COMING_SOON_VIEWS);
+
 Object.assign(window, {
   ME, ROLE_RANK, CATEGORIES, PRODUCTS, SELLER_ORDERS,
-  TX_HISTORY, NAV_BUYER, PROFILE_MENU,
+  TX_HISTORY, NAV_BUYER, PROFILE_MENU, COMING_SOON_VIEWS, COMING_SOON,
 });
 
 // ---- Catalog loader: fetch live products from backend ----

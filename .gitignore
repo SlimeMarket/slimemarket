@@ -86,6 +86,9 @@ cache/
 # session junk
 cookies.txt
 resp.json
+
+# workbuddy-ai memory (internal, never commit)
+.workbuddy-ai/
 # A real 205-byte file, created when a Git Bash command redirected output to
 # `> nul` — MSYS treats it as a filename, not the Windows null device.
 #

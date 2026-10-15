@@ -241,6 +241,18 @@ function ChatModal({ ctx, messages, onSend, onClose }) {
   );
 }
 
+/** WL deals + P2P escrow (rekber) are parked until after the mainnet push. */
+function FeatureComingSoon({ onBack }) {
+  return (
+    <div className="anim-view flex flex-col items-center justify-center text-center py-24">
+      <div className="w-16 h-16 rounded-2xl bg-arc-surface2/60 ring-1 ring-arc-border flex items-center justify-center mb-4"><Icon name="shield-check" size={28} className="text-arc-faint" /></div>
+      <h1 className="text-xl font-bold text-white">{tr('cs.title','Coming soon')}</h1>
+      <p className="text-sm text-arc-muted mt-1.5 max-w-sm">{tr('cs.body','WL & P2P Escrow is temporarily disabled while we finish the mainnet migration. Marketplace checkout, orders and escrow-protected purchases keep working.')}</p>
+      <Btn variant="primary" className="mt-5" icon="home" onClick={onBack}>{tr('cs.back','Back to Home')}</Btn>
+    </div>
+  );
+}
+
 function SellerLocked({ onApply }) {
   return (
     <div className="anim-view flex flex-col items-center justify-center text-center py-24">
@@ -2104,11 +2116,11 @@ function App() {
           {view === 'store' && <StorePage storeName={selStore} reviews={storeReviews[selStore]} onProduct={openProduct} onBuy={setCheckout} onChat={openSellerChat} onBack={back} />}
           {view === 'orders' && <PesananSaya orders={buyerOrders} loading={ordersLoading} onOpen={openOrder} onProduct={openProduct} />}
           {view === 'orderdetail' && <DetailPesanan order={selOrder} onBack={back} onConfirm={handleConfirm} onAppeal={setAppealOrder} onChat={openOrderChat} onStore={openStore} onCancel={setCancelOrder} onReview={setReviewOrder} onRevokeAllowance={handleRevokeAllowance} />}
-          {view === 'escrow' && <EscrowPage role={role} saldo={usdc} wlListings={wlListings} wlDeals={wlDeals} onList={handleWLList} onDeal={handleWLDeal} onOpenDeal={openDeal} notify={notify} rekberProps={{ txs: rekberTxs, saldo: usdc, onCreate: handleCreateRekber, onStartShop: () => navTo('storefront'), notify }} />}
-          {view === 'dealroom' && <WLDealRoom deal={wlDeals.find(d => d.id === selDeal)} role={role} onBack={back} onProceed={proceedDeal} onRelease={releaseDeal} onRefund={refundDeal} onCancel={cancelDeal} onEscapeHatch={escapeHatchDeal} onViewProfile={openProfile} notify={notify} onMarkDelivered={markDeliveredDeal} onConfirmReceipt={confirmReceiptDeal} onDispute={disputeDeal} onTopUpCollateral={topUpCollateralDeal} onSlash={slashDealFn} onMarkPaid={markPaidDeal} onConfirmPayment={confirmPaymentDeal} />}
+          {view === 'escrow' && <FeatureComingSoon onBack={() => navTo('beranda')} />}
+          {view === 'dealroom' && <FeatureComingSoon onBack={() => navTo('beranda')} />}
           {view === 'balance' && <Balance usdc={usdc} banks={banks} onWithdraw={handleWithdrawFiat} onAddBank={handleAddBank} onWithdrawCrypto={handleWithdrawCrypto} txs={fiatTxs} notify={notify} />}
           {view === 'dm' && <ChatDM threads={dmThreads} onSend={sendDM} onViewProfile={openProfile} onOpenOrder={openOrderById} notify={notify} selectedThreadId={selChatThread} onClearSelected={() => setSelChatThread(null)} />}
-          {view === 'discussion' && <GlobalDiscussion role={role} notify={notify} onRekber={setRekberTarget} onViewProfile={openProfile} onUpsell={() => navTo('storefront')} />}
+          {view === 'discussion' && <GlobalDiscussion role={role} notify={notify} onRekber={handleRekberFromChat} onViewProfile={openProfile} onUpsell={() => navTo('storefront')} />}
           {view === 'seller' && (canSell
             ? <SellerCenter orders={sellerOrders} onAdvance={handleAdvance} onDecline={setDeclineOrder} onOpenOrder={openSellerOrder} earnings={earnings} forumBalance={forumBalance} products={myProducts} setProducts={setMyProducts} notify={notify} onChat={openOrderChat} />
             : <SellerLocked onApply={() => setApplyOpen(true)} />)}
@@ -2134,7 +2146,10 @@ function App() {
 
       <CheckoutModal open={!!checkout} product={checkout} onClose={() => setCheckout(null)} onPay={handlePay} />
       <AppealModal open={!!appealOrder} onClose={() => setAppealOrder(null)} onSubmit={handleAppealSubmit} />
-      <RekberModal open={!!rekberTarget} target={rekberTarget} onClose={() => setRekberTarget(null)} onCreate={handleRekberFromChat} />
+      {/* P2P escrow (rekber) parked for the mainnet push — never opens. */}
+      {!COMING_SOON.has('rekber') && (
+        <RekberModal open={!!rekberTarget} target={rekberTarget} onClose={() => setRekberTarget(null)} onCreate={handleRekberFromChat} />
+      )}
       <ChatModal ctx={chatCtx} messages={chatCtx && chatCtx.seed ? chatCtx.seed : null} onSend={chatCtx && chatCtx.sellerName ? (text) => sendSellerDM(chatCtx.sellerName, text) : null} onClose={() => setChatCtx(null)} />
       <UserProfileModal name={profileName} onClose={() => setProfileName(null)} onChat={openSellerChat} onStore={openStore} />
       <ReasonModal open={!!cancelOrder} kind="cancel" reasons={CANCEL_REASONS} onClose={() => setCancelOrder(null)} onConfirm={handleCancelOrder} />
