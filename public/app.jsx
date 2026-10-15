@@ -520,7 +520,8 @@ function App() {
       pinRetryRef.current = null;
       if (typeof retry === 'function') setTimeout(() => retry(), 400);
     } catch (e) {
-      notify(tr('pin.gateRequired', 'PIN setup is required — please complete it.') + ' ' + (e && e.message ? e.message : ''), 'error');
+      const detail = window.__SLIME_WALLET_ERR || (e && e.message ? e.message : '');
+      notify('Wallet setup failed: ' + detail, 'error');
     } finally {
       setPinGateBusy(false);
     }

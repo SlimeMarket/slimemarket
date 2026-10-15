@@ -186,13 +186,13 @@
     if (!data) return;
 
     // Debug aid: surface the message keys Circle sends back so a failed/blank
-    // hosted UI can be diagnosed from the browser console. Kept terse on purpose.
+    // hosted UI can be diagnosed. Recorded to window.__SLIME_W3S_LOG and shown
+    // on-screen by app.jsx (no DevTools needed).
     try {
-      if (typeof console !== 'undefined' && console.debug) {
-        var keys = Object.keys(data);
-        console.debug('[W3S \u2190 circle]', keys.join(','),
-          data.error ? ('error=' + JSON.stringify(data.error)) : '');
-      }
+      window.__SLIME_W3S_LOG = window.__SLIME_W3S_LOG || [];
+      window.__SLIME_W3S_LOG.push(Object.keys(data).join(',') +
+        (data.error ? (' error=' + JSON.stringify(data.error)) : ''));
+      if (window.__SLIME_W3S_LOG.length > 12) window.__SLIME_W3S_LOG.shift();
     } catch (e) { /* logging must never throw */ }
 
     if (data.onFrameReady) {
@@ -256,6 +256,7 @@
       var res = data.result;
       var looksEmpty = !res || (typeof res === 'object' && Object.keys(res).length === 0);
       if (looksEmpty) {
+        try { window.__SLIME_WALLET_ERR = 'Circle closed the wallet UI without a result (log: ' + (window.__SLIME_W3S_LOG || []).slice(-4).join(' | ') + ')'; } catch (e) {}
         if (this._onComplete) {
           this._onComplete({ code: 155706, message: 'Challenge not completed' }, undefined);
         }
@@ -292,10 +293,14 @@
     } else if (data.onResendOtpEmail) {
       if (this._onResendOtpEmail) this._onResendOtpEmail();
     } else if (data.onError) {
+      try { window.__SLIME_WALLET_ERR = 'Circle error: ' + JSON.stringify(data.error); } catch (e) {}
       if (this._onComplete) this._onComplete(data.error, undefined);
     } else if (data.onClose) {
+      try { window.__SLIME_WALLET_ERR = 'Circle closed the UI (onClose; log: ' + (window.__SLIME_W3S_LOG || []).slice(-4).join(' | ') + ')'; } catch (e) {}
       this._closeModal();
       this._unSubscribeMessage();
+      // onClose must not leave the execute() promise hanging forever.
+      if (this._onComplete) this._onComplete({ code: 155706, message: 'Wallet UI closed' }, undefined);
     }
   };
 
