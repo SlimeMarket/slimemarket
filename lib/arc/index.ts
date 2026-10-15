@@ -43,7 +43,7 @@ export const ARC_RPC_URL = process.env.ARC_RPC_URL ?? DEFAULT_ARC_RPC;
 /** Block explorer for the active network (for tx links in the UI / ops). */
 export const ARC_EXPLORER_URL =
   process.env.ARC_EXPLORER_URL ??
-  (IS_ARC_MAINNET ? "https://explorer.arc.io" : "https://explorer.testnet.arc.io");
+  (IS_ARC_MAINNET ? "https://arc.etherscan.io" : "https://explorer.testnet.arc.io");
 
 /**
  * Validates and checksums an Arc address (EIP-55). Throws on invalid.

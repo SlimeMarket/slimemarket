@@ -211,6 +211,14 @@ export async function cancelOrder(orderId: string, user: CurrentUser, reason: st
   const { data: pre } = await admin.from("orders")
     .select("status, amount").eq("id", orderId).maybeSingle();
   if (!pre) throw new Error("order not found");
+
+  // IDEMPOTENT: a retry (double-click, or a refresh-and-retry after a slow
+  // response) must not surface "order status CANCELLED cannot cancel". The
+  // order is already in the desired state, so report success.
+  if ((pre.status as string) === "CANCELLED") {
+    return { status: "CANCELLED", alreadyCancelled: true };
+  }
+
   guardTransition(pre.status as string, ["PENDING", "PROCESS"], "cancel");
 
   if (ONCHAIN_FUNDS_ENABLED) {
