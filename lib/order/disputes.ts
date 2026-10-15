@@ -19,6 +19,7 @@ import { resolveSettlementRail, unresolvedRailError } from "./settlement-rail";
 import { recordLifecycleEvent } from "./patterns";
 import { disputeFinalStatus, settlementActionForDisputeResolution } from "./auto-settlement";
 import type { CurrentUser } from "@/lib/auth-ucw";
+import { ARC_EXPLORER_TX_BASE } from "@/lib/arc";
 
 const PLATFORM_WALLET_ID = process.env.PLATFORM_CIRCLE_WALLET_ID ?? "";
 
@@ -339,7 +340,7 @@ export async function resolveDispute(
       resolution: decision as "refund" | "release" | "split",
       reason: reason || undefined,
       txHash: (orderRow?.on_chain_tx_hash as string) || null,
-      explorerUrl: process.env.ARC_EXPLORER_URL || "https://testnet.arcscan.app/tx/",
+      explorerUrl: ARC_EXPLORER_TX_BASE,
       appUrl: process.env.NEXT_PUBLIC_APP_URL || "https://slimemarket.app",
     });
 

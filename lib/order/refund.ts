@@ -3,6 +3,7 @@ import { notifyUser } from "@/lib/notif";
 import { orderRefundedTemplate } from "@/lib/notif/templates";
 import { ONCHAIN_FUNDS_ENABLED } from "@/lib/wallet/onchain-funding";
 import { resolveSettlementRail } from "./settlement-rail";
+import { ARC_EXPLORER_TX_BASE } from "@/lib/arc";
 import {
   ApiValidationError,
   bestEffortPersist,
@@ -288,7 +289,7 @@ export async function processOrderRefund(
     feeNotRefundedUsdc: feeUsdc,
     reason: reason || undefined,
     txHash: (order.on_chain_tx_hash as string) || null,
-    explorerUrl: process.env.ARC_EXPLORER_URL || "https://testnet.arcscan.app/tx/",
+    explorerUrl: ARC_EXPLORER_TX_BASE,
     appUrl: process.env.NEXT_PUBLIC_APP_URL || "https://slimemarket.app",
   });
 

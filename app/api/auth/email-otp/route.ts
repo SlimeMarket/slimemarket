@@ -1,5 +1,7 @@
 import { jsonError, jsonOk } from "@/lib/utils";
 import { checkUserRateLimit } from "@/lib/rate-limit";
+import { CIRCLE_BLOCKCHAIN } from "@/lib/arc";
+import { asCircleBlockchain } from "@/lib/circle/ucw-user";
 
 const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 const CIRCLE_API = process.env.NEXT_PUBLIC_CIRCLE_BASE_URL ?? "https://api.circle.com";
@@ -104,7 +106,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         idempotencyKey: crypto.randomUUID(),
         accountType: "EOA",
-        blockchains: ["ARC-TESTNET"],
+        blockchains: [asCircleBlockchain(CIRCLE_BLOCKCHAIN)],
       }),
     });
 

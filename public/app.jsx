@@ -594,6 +594,9 @@ function App() {
           // .D3 — contract addresses for EOA WalletBridge calldata.
           if (h.escrowAddress) window.SLIME_ESCROW_ADDRESS = h.escrowAddress;
           if (h.usdcAddress) window.SLIME_USDC_ADDRESS = h.usdcAddress;
+          // Explorer BASE for the ACTIVE network. Every tx link in the UI is
+          // built from this, so mainnet never links to the testnet explorer.
+          if (h.explorerUrl) window.ARC_EXPLORER_URL = h.explorerUrl;
         }
       } catch (e) { /* non-fatal — flag stays false (legacy path) */ }
     })();
@@ -739,6 +742,23 @@ function App() {
     } catch (e) { console.warn('[refreshOrders] failed:', e.message); }
     finally { setOrdersLoading(false); }
   };
+  // Re-read ONE order and fold it into both the list and the open detail view.
+  // Order status changes happen server-side (seller marks SENT, the escrow
+  // indexer sees the release, an auto-cancel fires) — the page used to keep the
+  // stale snapshot it was opened with until the user reloaded the tab.
+  const refreshOrder = async (id) => {
+    if (!id) return null;
+    try {
+      const o = await api('/api/orders/' + id);
+      if (!o || !o.id) return null;
+      setSelOrder(cur => (cur && cur.id === id) ? { ...cur, ...o } : cur);
+      setBuyerOrders(list => list.map(x => x.id === id ? { ...x, ...o } : x));
+      return o;
+    } catch (e) {
+      console.warn('[refreshOrder] failed:', e.message);
+      return null;
+    }
+  };
   const refreshSellerOrders = async () => {
     try {
       const r = await api('/api/my/orders');
@@ -839,6 +859,11 @@ function App() {
 
   // modals
   const [checkout, setCheckout] = useState(null);
+  // id of the order whose "Confirm Received" request is in flight — drives the
+  // spinner on the button so a slow on-chain release never looks like a no-op.
+  const [confirmingId, setConfirmingId] = useState(null);
+  // post-checkout hand-off: { order } → "View order / Continue shopping" modal.
+  const [checkoutDone, setCheckoutDone] = useState(null);
   const [appealOrder, setAppealOrder] = useState(null);
   const [rekberTarget, setRekberTarget] = useState(null);
   const [chatCtx, setChatCtx] = useState(null);
@@ -1000,6 +1025,46 @@ function App() {
       .catch(() => { /* 404 / network — keep fabricated defaults */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selStore]);
+
+  // My Orders — re-fetch every time the view opens. The list used to keep
+  // whatever it held when the app booted, so an order created seconds earlier
+  // (checkout → order detail → sidebar "My Orders") was missing until a reload.
+  useEffect(() => {
+    if (view === 'orders') refreshOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
+  // My Orders — keep it fresh while it is open (seller accepts, ships, releases).
+  useEffect(() => {
+    if (view !== 'orders') return;
+    const id = setInterval(() => refreshOrders(), 10000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
+  // Order Detail — poll the OPEN order. Status transitions (PROCESS → SENT,
+  // SENT → DONE, auto-cancel) and the auto-release deadline are all written
+  // server-side; without this the page showed a frozen snapshot of whatever it
+  // was opened with, and the credential reveal / release countdown only
+  // appeared after a manual reload.
+  useEffect(() => {
+    if (view !== 'orderdetail') return;
+    const id = selOrder && selOrder.id;
+    if (!id) return;
+    refreshOrder(id);
+    const s = selOrder && selOrder.status;
+    const oc = selOrder && selOrder.onChainStatus;
+    // Keep polling while the escrow settlement is still in flight: a DONE order
+    // whose release is 'release_pending' / 'release_failed' (auto-retrying) is
+    // not finished yet — the indexer will flip it to RELEASED a few blocks later.
+    const chainPending = typeof oc === 'string' && /pending|failed/i.test(oc);
+    const terminal = ['CANCELLED', 'DECLINED'].includes(s) || (s === 'DONE' && !chainPending);
+    if (terminal) return;
+    const t = setInterval(() => refreshOrder(id), 6000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, selOrder && selOrder.id, selOrder && selOrder.status, selOrder && selOrder.onChainStatus]);
+
   const openOrder = (o) => { setSelOrder(o); pushTo('orderdetail', { id: o.id }); };
   const openOrderById = (id) => { const o = buyerOrders.find(x => x.id === id); if (o) openOrder(o); else notify('Order not found', 'error'); };
   const openProfile = (name) => setProfileName(name);
@@ -1172,7 +1237,7 @@ function App() {
         const confirmed = await payExternalPermitOrApprove(prepared, payerAddress, total);
         await refreshWallet(); await refreshOrders();
         const order = await api('/api/orders/' + confirmed.orderId).catch(() => null);
-        if (order) { setSelOrder(order); pushTo('orderdetail', { id: order.id }); }
+        if (order) { setSelOrder(order); setCheckoutDone(order); }
         // never claim success we cannot prove. This branch used to
         // print "Payment successful!" unconditionally while the UCW branch
         // correctly checked `onChainOrderId`. A `pending` outcome (relay
@@ -1207,7 +1272,7 @@ function App() {
       try {
         const order = await api('/api/orders', { method: 'POST', body: JSON.stringify({ productId: product.id, variantLabel: variant.label, qty, payment: 'Balance' }) });
         await refreshWallet(); await refreshOrders();
-        setSelOrder(order); pushTo('orderdetail', { id: order.id });
+        setSelOrder(order); setCheckoutDone(order);
         notify(product.delivery === 'instant' ? 'Payment successful! Access unlocked.' : 'Payment successful! Seller is processing.', 'success');
       } catch (e) { notify('Checkout failed: ' + e.message, 'error'); }
       clearCartCookie(); // checkout finished — cart empty again
@@ -1256,7 +1321,7 @@ function App() {
       });
       await refreshWallet(); await refreshOrders();
       const order = await api('/api/orders/' + confirmed.orderId).catch(() => null);
-      if (order) { setSelOrder(order); pushTo('orderdetail', { id: order.id }); }
+      if (order) { setSelOrder(order); setCheckoutDone(order); }
       // never claim success we cannot prove. `onChainOrderId` is the
       // contract's own order id; without it the relay reached Circle but the
       // order is not yet verifiable on-chain, so we say "processing" instead of
@@ -1306,10 +1371,14 @@ function App() {
     // release" — an error for work that had already succeeded.
     if (confirmingRef.current === order.id) return;
     confirmingRef.current = order.id;
+    setConfirmingId(order.id);
     try {
       await api('/api/orders/' + order.id + '/confirm', { method: 'POST' });
-      await refreshOrders(); await refreshWallet();
+      // Optimistic flip first so the page reacts instantly, then reconcile with
+      // the server (which carries the on-chain release state).
       updateOrder(order.id, { status: 'DONE' });
+      await refreshOrder(order.id);
+      await refreshOrders(); await refreshWallet();
       await refreshMe(); // server bumps tx_count + promotes role at 3
       pushNotif({ icon: 'check-check', tone: 'emerald', title: 'Order Confirmed', text: order.id + ' · on-chain release in progress', go: 'orders' });
       notify('Order confirmed. On-chain release in progress.', 'success');
@@ -1318,13 +1387,16 @@ function App() {
       // Already settled by an earlier click — treat as success, not failure.
       if (/cannot release/i.test(e.message || '')) {
         updateOrder(order.id, { status: 'DONE' });
+        await refreshOrder(order.id);
         setReviewOrder({ ...order, status: 'DONE' });
         notify('Order already confirmed.', 'success');
       } else {
         notify('Confirm failed: ' + e.message, 'error');
       }
+    } finally {
+      confirmingRef.current = null;
+      setConfirmingId(null);
     }
-    confirmingRef.current = null;
   };
   const handleReviewSubmit = async (order, review) => {
     try {
@@ -2152,7 +2224,7 @@ function App() {
           {view === 'product' && <ProductDetail product={selProduct} onBuy={setCheckout} onStore={openStore} onBack={back} onChat={openSellerChat} />}
           {view === 'store' && <StorePage storeName={selStore} reviews={storeReviews[selStore]} onProduct={openProduct} onBuy={setCheckout} onChat={openSellerChat} onBack={back} />}
           {view === 'orders' && <PesananSaya orders={buyerOrders} loading={ordersLoading} onOpen={openOrder} onProduct={openProduct} />}
-          {view === 'orderdetail' && <DetailPesanan order={selOrder} onBack={back} onConfirm={handleConfirm} onAppeal={setAppealOrder} onChat={openOrderChat} onStore={openStore} onCancel={setCancelOrder} onReview={setReviewOrder} onRevokeAllowance={handleRevokeAllowance} />}
+          {view === 'orderdetail' && <DetailPesanan order={selOrder} confirming={confirmingId === (selOrder && selOrder.id)} onBack={back} onConfirm={handleConfirm} onAppeal={setAppealOrder} onChat={openOrderChat} onStore={openStore} onCancel={setCancelOrder} onReview={setReviewOrder} onRevokeAllowance={handleRevokeAllowance} />}
           {view === 'escrow' && <FeatureComingSoon onBack={() => navTo('beranda')} />}
           {view === 'dealroom' && <FeatureComingSoon onBack={() => navTo('beranda')} />}
           {view === 'balance' && <Balance usdc={usdc} banks={banks} onWithdraw={handleWithdrawFiat} onAddBank={handleAddBank} onWithdrawCrypto={handleWithdrawCrypto} txs={fiatTxs} notify={notify} />}
@@ -2192,6 +2264,21 @@ function App() {
       <ReasonModal open={!!cancelOrder} kind="cancel" reasons={CANCEL_REASONS} onClose={() => setCancelOrder(null)} onConfirm={handleCancelOrder} />
       <ReasonModal open={!!declineOrder} kind="decline" reasons={DECLINE_REASONS} onClose={() => setDeclineOrder(null)} onConfirm={handleDecline} />
       <ReviewModal open={!!reviewOrder} order={reviewOrder} onClose={() => setReviewOrder(null)} onSubmit={handleReviewSubmit} />
+      {/* Post-checkout hand-off — the buyer is never left guessing whether the
+          order went through, and can jump straight to the detail page. */}
+      <Modal open={!!checkoutDone} onClose={() => setCheckoutDone(null)} width="max-w-md">
+        <Card className="overflow-hidden">
+          <div className="p-6 text-center border-b border-arc-border">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 ring-1 ring-emerald-500/30 flex items-center justify-center mx-auto mb-3"><Icon name="check-check" size={22} className="text-emerald-300" /></div>
+            <div className="font-semibold text-arc-text text-lg">{tr('co.orderPlaced','Order placed!')}</div>
+            <div className="text-sm text-arc-muted mt-1">{tr('co.orderPlacedSub','Your payment is in escrow. The seller has been notified.')}</div>
+          </div>
+          <div className="p-5 space-y-2.5">
+            <Btn variant="primary" full icon="receipt" onClick={() => { const o = checkoutDone; setCheckoutDone(null); if (o) { setSelOrder(o); pushTo('orderdetail', { id: o.id }); } }}>{tr('co.viewOrder','View Order Detail')}</Btn>
+            <Btn variant="ghost" full onClick={() => setCheckoutDone(null)}>{tr('co.continueShopping','Continue Shopping')}</Btn>
+          </div>
+        </Card>
+      </Modal>
       <ApplySellerModal open={applyOpen} onClose={() => setApplyOpen(false)} onSubmit={handleApplySeller} />
       <WalletActionModal action={walletAction} usdc={usdc} onClose={() => setWalletAction(null)} onConfirm={handleWalletConfirm} notify={notify} />
       <Toast toast={toast} />

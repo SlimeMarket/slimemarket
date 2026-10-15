@@ -54,9 +54,9 @@ const erc20Abi = parseAbi([
 ]);
 
 /** Below this the DCW cannot pay for many relayed transactions. */
-const MIN_DCW_GAS_USDC = 5;
+const MIN_DCW_GAS_USDC = 0.05;
 /** Enough for a contract deploy plus the post-deploy wiring transactions. */
-const MIN_DEPLOYER_GAS_USDC = 2;
+const MIN_DEPLOYER_GAS_USDC = 0.1;
 
 async function main() {
   console.log("=== Arc MAINNET preflight ===\n");

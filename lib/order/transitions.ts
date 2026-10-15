@@ -9,6 +9,7 @@ import { logger } from "@/lib/logger";
 import { ONCHAIN_FUNDS_ENABLED } from "@/lib/wallet/onchain-funding";
 import { resolveSettlementRail, unresolvedRailError } from "./settlement-rail";
 import { bestEffortPersist, guardTransition, recordLifecycleEvent } from "./patterns";
+import { ARC_EXPLORER_TX_BASE } from "@/lib/arc";
 
 /** Parse a DB amount column to bigint defensively (null/garbage → 0n for lifecycle-only use). */
 function parseAmountOrZero(amount: string | number | null | undefined): bigint {
@@ -185,7 +186,7 @@ export async function confirmOrder(orderId: string, user: CurrentUser) {
         feeUsdc,
         netUsdc,
         txHash: (orderRow?.on_chain_tx_hash as string) || null,
-        explorerUrl: process.env.ARC_EXPLORER_URL || "https://testnet.arcscan.app/tx/",
+        explorerUrl: ARC_EXPLORER_TX_BASE,
         appUrl: process.env.NEXT_PUBLIC_APP_URL || "https://slimemarket.app",
       });
       await notifyUser(sellerId, {

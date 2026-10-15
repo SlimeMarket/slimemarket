@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdminClient } from '@/lib/supabase/admin-client';
 import { getCurrentUser } from '@/lib/auth-ucw';
 import { buildInvoiceData, renderInvoiceHtml } from '@/lib/order/invoice';
+import { ARC_EXPLORER_TX_BASE } from '@/lib/arc';
 
 /**
  * GET /api/orders/[id]/invoice
@@ -67,7 +68,7 @@ export async function GET(
       storeName: (store?.name as string | undefined) ?? null,
       buyerEmail,
       escrowAddress: process.env.ESCROW_CONTRACT_ADDRESS ?? '',
-      explorerBase: process.env.ARC_EXPLORER_URL || 'https://testnet.arcscan.app/tx/',
+      explorerBase: ARC_EXPLORER_TX_BASE,
       appUrl: process.env.NEXT_PUBLIC_APP_URL || 'https://slimemarket.app',
       networkLabel:
         (process.env.ARC_CHAIN_ID ?? '') === '5042' ? 'Arc Mainnet' : 'Arc Testnet',

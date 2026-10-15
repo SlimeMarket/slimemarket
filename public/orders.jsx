@@ -108,11 +108,15 @@ function PesananSaya({ orders, onOpen, onProduct, loading }) {
 }
 
 // ---------- Order Detail ----------
-function DetailPesanan({ order, onBack, onConfirm, onAppeal, onChat, onStore, onCancel, onReview, onRevokeAllowance }) {
+function DetailPesanan({ order, confirming, onBack, onConfirm, onAppeal, onChat, onStore, onCancel, onReview, onRevokeAllowance }) {
   const [reveal, setReveal] = useState(false);
   const [copied, setCopied] = useState(false);
   const [nowTs, setNowTs] = useState(Date.now());
   const [t0, setT0] = useState(() => Date.now());
+  // Two-step confirm: releasing escrow is irreversible, so the button opens a
+  // warning instead of firing the on-chain release straight away.
+  const [confirmWarn, setConfirmWarn] = useState(false);
+  useEffect(() => { setConfirmWarn(false); }, [order && order.id]);
   useEffect(() => { setT0(Date.now()); setReveal(false); }, [order && order.id]);
   useEffect(() => { const id = setInterval(() => setNowTs(Date.now()), 1000); return () => clearInterval(id); }, []);
   if (!order) return null;
@@ -258,7 +262,7 @@ function DetailPesanan({ order, onBack, onConfirm, onAppeal, onChat, onStore, on
                       LATEST settlement tx (release/refund), so calling this the
                       "Creation Tx" was wrong once an order had settled. */}
                   <span className="text-arc-muted">{tr('od.latestTx','Latest on-chain Tx')}</span>
-                  <a href={'https://testnet.arcscan.app/tx/' + order.onChainTxHash} target="_blank" rel="noopener noreferrer"
+                  <a href={String(window.ARC_EXPLORER_URL || 'https://arc.etherscan.io').replace(/\/+$/, '') + '/tx/' + order.onChainTxHash} target="_blank" rel="noopener noreferrer"
                      className="font-mono text-arc-accent hover:brightness-125 truncate max-w-[180px]">
                     {order.onChainTxHash.slice(0, 10)}…{order.onChainTxHash.slice(-6)}
                   </a>
@@ -409,8 +413,10 @@ function DetailPesanan({ order, onBack, onConfirm, onAppeal, onChat, onStore, on
                 </div>
                 <Btn variant="primary" full icon="message-circle" onClick={() => onChat(order)}>{tr('od.chatSeller','Chat Seller')}</Btn>
                 <div className="flex gap-2">
-                  <Btn variant="emerald" full icon="check-check" onClick={() => onConfirm(order)}>{tr('od.confirm','Confirm Received')}</Btn>
-                  <Btn variant="danger" icon="gavel" onClick={() => onAppeal(order)}>{tr('od.appeal','Appeal')}</Btn>
+                  <Btn variant="emerald" full icon={confirming ? 'loader' : 'check-check'} disabled={confirming} onClick={() => setConfirmWarn(true)}>
+                    {confirming ? tr('od.confirming','Releasing funds…') : tr('od.confirm','Confirm Received')}
+                  </Btn>
+                  <Btn variant="danger" icon="gavel" disabled={confirming} onClick={() => onAppeal(order)}>{tr('od.appeal','Appeal')}</Btn>
                 </div>
               </div>
             )}
@@ -454,6 +460,30 @@ function DetailPesanan({ order, onBack, onConfirm, onAppeal, onChat, onStore, on
           </Card>
         </div>
       </div>
+
+      {/* Confirm-received warning: escrow release is irreversible. */}
+      <Modal open={confirmWarn} onClose={() => setConfirmWarn(false)} width="max-w-md">
+        <Card className="overflow-hidden">
+          <div className="flex items-start gap-3 px-5 py-4 border-b border-arc-border bg-amber-500/5">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/15 ring-1 ring-amber-500/30 flex items-center justify-center text-amber-300 shrink-0"><Icon name="alert-triangle" size={18} /></div>
+            <div className="min-w-0">
+              <div className="font-semibold text-arc-text">{tr('od.confirmTitle','Release funds to the seller?')}</div>
+              <div className="text-xs text-arc-muted mt-0.5" style={{ textWrap: 'pretty' }}>{tr('od.confirmWarn','The escrowed funds will be forwarded to the seller. Check your order first — this cannot be undone.')}</div>
+            </div>
+            <button onClick={() => setConfirmWarn(false)} className="ml-auto w-8 h-8 rounded-lg hover:bg-arc-surface2 text-arc-muted flex items-center justify-center shrink-0"><Icon name="x" size={16} /></button>
+          </div>
+          <div className="p-5 space-y-2.5">
+            <div className="flex items-center justify-between text-sm rounded-xl ring-1 ring-arc-border bg-arc-surface/60 px-3.5 py-3">
+              <span className="text-arc-muted">{tr('od.releaseAmount','Amount released')}</span>
+              <Usdc value={order.amount} className="text-emerald-400 font-bold" />
+            </div>
+            <div className="flex gap-3 pt-1">
+              <Btn variant="ghost" full onClick={() => setConfirmWarn(false)}>{tr('c.cancel','Cancel')}</Btn>
+              <Btn variant="emerald" full icon="check-check" onClick={() => { setConfirmWarn(false); onConfirm(order); }}>{tr('od.confirmYes','Confirm & Release')}</Btn>
+            </div>
+          </div>
+        </Card>
+      </Modal>
     </div>
   );
 }

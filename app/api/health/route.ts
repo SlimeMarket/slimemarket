@@ -1,6 +1,6 @@
 import { jsonOk, jsonError } from "@/lib/utils";
 import { isContractReady } from "@/lib/contracts/escrow-client";
-import { ARC_USDC_CONTRACT, arcPublicClient } from "@/lib/arc";
+import { ARC_USDC_CONTRACT, ARC_EXPLORER_URL, arcPublicClient } from "@/lib/arc";
 import { supabaseAdminClient } from "@/lib/supabase/admin-client";
 
 export const dynamic = "force-dynamic";
@@ -204,6 +204,10 @@ export async function GET() {
     // (approve + depositEscrowCollateral) without a second round-trip.
     escrowAddress: process.env.ESCROW_CONTRACT_ADDRESS || null,
     usdcAddress: process.env.CIRCLE_USDC_CONTRACT || ARC_USDC_CONTRACT,
+    // Block explorer BASE for the active network. The FE builds tx links as
+    // `${explorerUrl}/tx/<hash>` — never hardcode a host in a component, or
+    // mainnet users end up on the testnet explorer.
+    explorerUrl: ARC_EXPLORER_URL,
     uptime: process.uptime(),
     checks,
     time: new Date().toISOString(),

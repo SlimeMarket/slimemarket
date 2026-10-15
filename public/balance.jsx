@@ -860,7 +860,7 @@ function Balance({ usdc, banks, onWithdraw, onAddBank, onWithdrawCrypto, txs, no
                     {t.sub} · <span>{t.time}</span>
                     {t.source === 'circle' && <PixBadge color="blue" className="!text-[7px]">{tr('balance.circle','CIRCLE')}</PixBadge>}
                     {t.txHash && (
-                      <a href={`https://testnet.arcscan.app/tx/${t.txHash}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-[10px] font-mono text-arc-accent hover:brightness-125 transition-all duration-200 hover:-translate-y-0.5">
+                      <a href={String(window.ARC_EXPLORER_URL || 'https://arc.etherscan.io').replace(/\/+$/, '') + '/tx/' + t.txHash} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-[10px] font-mono text-arc-accent hover:brightness-125 transition-all duration-200 hover:-translate-y-0.5">
                         <Icon name="external-link" size={10} /> {t.txHash.slice(0, 6)}…{t.txHash.slice(-4)}
                       </a>
                     )}

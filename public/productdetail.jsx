@@ -55,6 +55,25 @@ function ProductDetail({ product, onBuy, onStore, onBack, onChat }) {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
+  // Verified-purchase reviews for THIS product. `null` = still loading.
+  const [reviews, setReviews] = useState(null);
+  const [reviewSummary, setReviewSummary] = useState(null);
+
+  const productId = product && product.id;
+  useEffect(() => {
+    if (!productId) return;
+    let cancelled = false;
+    setReviews(null); setReviewSummary(null);
+    fetch((window.SLIME_API || '') + '/api/products/' + encodeURIComponent(productId) + '/reviews', { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (cancelled) return;
+        setReviews(Array.isArray(d && d.items) ? d.items : []);
+        setReviewSummary((d && d.summary) || null);
+      })
+      .catch(() => { if (!cancelled) { setReviews([]); setReviewSummary(null); } });
+    return () => { cancelled = true; };
+  }, [productId]);
 
   const submitReport = async () => {
     if (!reportReason.trim()) return;
@@ -153,6 +172,14 @@ function ProductDetail({ product, onBuy, onStore, onBack, onChat }) {
             <DeliveryBadge type={product.delivery} est={product.est} />
           </div>
           <h1 className="text-2xl font-bold text-white leading-snug" style={{ textWrap: 'balance' }}>{product.title}</h1>
+          {/* Verified-purchase rating (only once at least one review exists). */}
+          {reviewSummary && reviewSummary.count > 0 && (
+            <div className="mt-2 flex items-center gap-2">
+              <Stars value={reviewSummary.avg} size={14} />
+              <span className="text-sm font-bold text-arc-text tabular-nums">{reviewSummary.avg.toFixed(1)}</span>
+              <span className="text-xs text-arc-faint">({reviewSummary.count} {reviewSummary.count === 1 ? tr('pd.review','review') : tr('pd.reviews','reviews')})</span>
+            </div>
+          )}
           <div className="mt-2 flex items-baseline gap-2">
             <Usdc value={product.priceLow} className="text-2xl font-extrabold text-arc-accent" size="text-sm" />
             {product.priceHigh > product.priceLow && <><span className="text-arc-faint">–</span><Usdc value={product.priceHigh} className="text-2xl font-extrabold text-arc-accent" size="text-sm" /></>}
@@ -219,6 +246,69 @@ function ProductDetail({ product, onBuy, onStore, onBack, onChat }) {
         <pre className="text-sm text-arc-text leading-relaxed whitespace-pre-wrap font-sans" style={{ textWrap: 'pretty' }}>{shown}{!expand && desc.length > 260 ? '…' : ''}</pre>
         {desc.length > 260 && (
           <button onClick={() => setExpand(e => !e)} className="mt-2 text-sm text-arc-accent hover:brightness-125 transition">{expand ? tr('pd.showLess','Show less') : tr('pd.readMore','Read more')}</button>
+        )}
+      </Card>
+
+      {/* reviews — verified-purchase only (a review is written against an order,
+          so every entry here maps to a completed purchase of this product). */}
+      <Card className="mt-6 p-5 max-w-3xl bg-gradient-to-br from-arc-surface to-arc-surface2/50">
+        <div className="flex items-center gap-2 text-sm font-semibold text-arc-text mb-4">
+          <Icon name="star" size={16} className="text-amber-400" /> {tr('pd.reviews','Reviews')}
+          {reviewSummary && reviewSummary.count > 0 && <span className="text-arc-faint font-normal">({reviewSummary.count})</span>}
+        </div>
+
+        {reviews === null ? (
+          <div className="space-y-3">
+            {[0, 1].map(i => <div key={i} className="h-16 rounded-xl animate-pulse bg-arc-surface2/40"></div>)}
+          </div>
+        ) : reviews.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-arc-surface2/60 ring-1 ring-arc-border flex items-center justify-center"><Icon name="star" size={26} className="text-arc-faint" /></div>
+            <div className="text-sm font-semibold text-arc-text">{tr('pd.noReviewsYet','No reviews yet.')}</div>
+            <div className="text-xs text-arc-faint">{tr('pd.beFirstReview','Be the first to review this product')}</div>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-col sm:flex-row items-center gap-5 rounded-2xl ring-1 ring-arc-border bg-arc-bg/40 px-5 py-4 mb-5">
+              <div className="text-center shrink-0">
+                <div className="text-4xl font-extrabold text-arc-text tabular-nums">{reviewSummary.avg.toFixed(1)}</div>
+                <div className="mt-1 flex justify-center"><Stars value={reviewSummary.avg} size={13} /></div>
+                <div className="text-[11px] text-arc-faint mt-1">{reviewSummary.count} {tr('pd.reviews','reviews')}</div>
+              </div>
+              <div className="flex-1 w-full space-y-1.5">
+                {[5, 4, 3, 2, 1].map(star => {
+                  const n = (reviewSummary.dist && reviewSummary.dist[star - 1]) || 0;
+                  const pct = reviewSummary.count ? Math.round((n / reviewSummary.count) * 100) : 0;
+                  return (
+                    <div key={star} className="flex items-center gap-2">
+                      <span className="text-[11px] text-arc-faint w-6 shrink-0 tabular-nums">{star}★</span>
+                      <div className="flex-1 h-2 rounded-full bg-arc-surface2 overflow-hidden">
+                        <div className="h-full rounded-full bg-amber-400/80 transition-all duration-300" style={{ width: pct + '%' }}></div>
+                      </div>
+                      <span className="text-[11px] text-arc-faint w-8 text-right shrink-0 tabular-nums">{n}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="space-y-3">
+              {reviews.map((r, i) => (
+                <div key={i} className="rounded-xl ring-1 ring-arc-border bg-arc-surface/50 p-4 transition-all duration-200 hover:ring-arc-borderlt">
+                  <div className="flex items-center gap-3">
+                    <Avatar gradient={r.avatar} name={r.user} size={36} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-arc-text inline-flex items-center gap-1.5">
+                        {typeof censorName === 'function' ? censorName(r.user) : r.user}
+                        <Icon name="shield-check" size={12} className="text-emerald-500/60" />
+                      </div>
+                      <div className="flex items-center gap-2"><Stars value={r.rating} size={11} /><span className="text-[11px] text-arc-faint">{r.date}</span></div>
+                    </div>
+                  </div>
+                  {r.text && <p className="text-sm text-arc-text mt-2.5 leading-relaxed" style={{ textWrap: 'pretty' }}>{r.text}</p>}
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </Card>
 

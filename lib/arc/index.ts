@@ -40,10 +40,30 @@ const DEFAULT_ARC_RPC = IS_ARC_MAINNET
 
 export const ARC_RPC_URL = process.env.ARC_RPC_URL ?? DEFAULT_ARC_RPC;
 
-/** Block explorer for the active network (for tx links in the UI / ops). */
-export const ARC_EXPLORER_URL =
+/**
+ * Block explorer BASE for the active network (no trailing slash, no `/tx`).
+ *
+ * Normalised on purpose: `ARC_EXPLORER_URL` has historically been written both
+ * ways in this repo — as a bare base (`https://arc.etherscan.io`) and as a
+ * tx-prefixed base (`https://arcscan.app/tx/`). Consumers disagreed, so links
+ * ended up on the wrong host (testnet) or double-suffixed. Everything now
+ * derives from this normalised value via `arcTxUrl()`.
+ */
+export const ARC_EXPLORER_URL = (
   process.env.ARC_EXPLORER_URL ??
-  (IS_ARC_MAINNET ? "https://arc.etherscan.io" : "https://explorer.testnet.arc.io");
+  (IS_ARC_MAINNET ? "https://arc.etherscan.io" : "https://explorer.testnet.arc.io")
+)
+  .trim()
+  .replace(/\/+$/, "")
+  .replace(/\/tx$/i, "");
+
+/** Full explorer URL for a transaction hash on the active network. */
+export function arcTxUrl(hash: string): string {
+  return `${ARC_EXPLORER_URL}/tx/${hash}`;
+}
+
+/** Base used by the email/invoice templates, which append the hash directly. */
+export const ARC_EXPLORER_TX_BASE = `${ARC_EXPLORER_URL}/tx/`;
 
 /**
  * Validates and checksums an Arc address (EIP-55). Throws on invalid.

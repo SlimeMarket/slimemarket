@@ -12,15 +12,19 @@ export interface ArcWalletCandidate {
 }
 
 /**
- * Pick the ARC-TESTNET wallet to persist locally from a Circle wallet list.
+ * Pick the Arc wallet (mainnet "ARC" or testnet "ARC-TESTNET") to persist
+ * locally from a Circle wallet list.  Network-aware so the same code works
+ * on mainnet and testnet builds.
  *
  * Preference order:
- *   1. an ARC-TESTNET wallet in state LIVE
- *   2. the first ARC-TESTNET wallet in any other state
- *   3. null when there is no ARC-TESTNET wallet at all
+ *   1. an Arc wallet in state LIVE
+ *   2. the first Arc wallet in any other state
+ *   3. null when there is no Arc wallet at all
  */
 export function pickArcWallet<T extends ArcWalletCandidate>(wallets: T[]): T | null {
-  const arc = wallets.filter((w) => w && w.blockchain === "ARC-TESTNET");
+  const arc = wallets.filter(
+    (w) => w && (w.blockchain === "ARC" || w.blockchain === "ARC-TESTNET"),
+  );
   if (arc.length === 0) return null;
   const live = arc.find((w) => w.state === "LIVE");
   return live ?? arc[0];

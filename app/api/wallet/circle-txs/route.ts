@@ -2,7 +2,8 @@ import { getCurrentUser, getUcwCredentials, isDevTokenSession } from "@/lib/auth
 import { jsonError, jsonOk } from "@/lib/utils";
 import { checkUserRateLimit, FINANCIAL_RATE_LIMIT } from "@/lib/rate-limit";
 import { circleUcwSdk } from "@/lib/circle/ucw-client";
-import { mapUcwError, UcwError } from "@/lib/circle/ucw-user";
+import { mapUcwError, UcwError, asCircleBlockchain } from "@/lib/circle/ucw-user";
+import { CIRCLE_BLOCKCHAIN } from "@/lib/arc";
 
 /**
  * GET /api/wallet/circle-txs — .C2 transaction-history supplement.
@@ -44,7 +45,7 @@ export async function GET() {
   try {
     const res = await circleUcwSdk.listTransactions({
       userToken: creds.userToken,
-      blockchain: "ARC-TESTNET",
+      blockchain: asCircleBlockchain(CIRCLE_BLOCKCHAIN),
       pageSize: 20,
     });
     const list = res.data?.transactions ?? [];

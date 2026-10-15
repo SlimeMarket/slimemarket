@@ -32,7 +32,7 @@ import { initiateSmartContractPlatformClient } from "@circle-fin/smart-contract-
 const API_KEY = process.env.CIRCLE_API_KEY;
 const ENTITY_SECRET = process.env.CIRCLE_ENTITY_SECRET;
 const ESCROW_ADDRESS = process.env.ESCROW_CONTRACT_ADDRESS;
-const BLOCKCHAIN = "ARC-TESTNET";
+const BLOCKCHAIN = process.env.CIRCLE_BLOCKCHAIN ?? "ARC-TESTNET";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 

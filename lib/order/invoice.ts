@@ -1,6 +1,7 @@
 import { supabaseAdminClient } from "@/lib/supabase/admin-client";
 import { sendEmail } from "@/lib/notif/email";
 import { formatUsdc } from "@/lib/money";
+import { ARC_EXPLORER_TX_BASE } from "@/lib/arc";
 
 /**
  * Order invoice — sent to the buyer the moment their payment lands in escrow.
@@ -109,76 +110,182 @@ export function renderInvoiceText(d: InvoiceData): string {
 }
 
 export function renderInvoiceHtml(d: InvoiceData): string {
-  const row = (label: string, value: string, strong = false) =>
-    `<tr>` +
-    `<td style="padding:6px 0;color:${strong ? "#0f172a" : "#475569"};${
-      strong ? "font-weight:600;" : ""
-    }">${esc(label)}</td>` +
-    `<td align="right" style="padding:6px 0;color:#0f172a;${
-      strong ? "font-weight:700;font-size:16px;" : ""
-    }">${esc(value)}</td>` +
-    `</tr>`;
+  const statusColor =
+    d.status === "DONE" || d.status === "RELEASED"
+      ? "#059669"
+      : d.status === "DISPUTED"
+        ? "#dc2626"
+        : d.status === "REFUNDED"
+          ? "#6b7280"
+          : "#0891b2";
+  const statusBg =
+    d.status === "DONE" || d.status === "RELEASED"
+      ? "#ecfdf5"
+      : d.status === "DISPUTED"
+        ? "#fef2f2"
+        : d.status === "REFUNDED"
+          ? "#f3f4f6"
+          : "#ecfeff";
 
   const txLine = d.txHash
-    ? `<p style="margin:4px 0;font-size:13px;color:#475569">Transaction:
-         <a href="${esc(d.explorerBase + d.txHash)}" style="color:#0891b2">${esc(
-           d.txHash.slice(0, 18),
-         )}…</a></p>`
+    ? `<tr>
+        <td style="padding:10px 0;color:#64748b;font-size:12px;border-bottom:1px solid #f1f5f9">Transaction</td>
+        <td align="right" style="padding:10px 0;font-size:12px;border-bottom:1px solid #f1f5f9">
+          <a href="${esc(d.explorerBase + d.txHash)}" style="color:#0891b2;text-decoration:none;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,monospace">${esc(d.txHash.slice(0, 24))}…</a>
+        </td>
+      </tr>`
     : "";
 
   return `<!doctype html>
-<html><body style="margin:0;background:#f1f5f9;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:14px;overflow:hidden">
-  <tr><td style="background:#0f172a;padding:20px 24px">
-    <div style="color:#ffffff;font-size:18px;font-weight:700">SlimeMarket</div>
-    <div style="color:#94a3b8;font-size:13px;margin-top:2px">On-chain escrow marketplace · ${esc(
-      d.networkLabel,
-    )}</div>
-  </td></tr>
-  <tr><td style="padding:24px">
-    <div style="font-size:20px;font-weight:700;color:#0f172a">Invoice ${esc(d.invoiceNo)}</div>
-    <p style="margin:6px 0 18px;font-size:13px;color:#64748b">Issued ${esc(d.issuedAt)}</p>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Invoice ${esc(d.invoiceNo)} — SlimeMarket</title>
+  <style>
+    @media print {
+      body { background: #fff !important; }
+      .invoice-wrap { box-shadow: none !important; border: 1px solid #e2e8f0; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#1e293b;line-height:1.5">
 
-    <table role="presentation" width="100%" style="font-size:13px;border-collapse:collapse">
-      ${row("Buyer", d.buyerEmail ?? "—")}
-      ${row("Seller", d.storeName)}
-      ${row("Item", `${d.itemName}${d.itemVariant ? ` (${d.itemVariant})` : ""}`)}
-      ${row("Quantity", String(d.qty))}
-      ${row("Payment method", d.paymentMethod)}
-    </table>
+<!-- Print button -->
+<div class="no-print" style="text-align:center;padding:20px 12px">
+  <button onclick="window.print()" style="background:#0f172a;color:#fff;border:none;padding:10px 24px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer">
+    Print / Save as PDF
+  </button>
+</div>
 
-    <hr style="border:none;border-top:1px solid #e2e8f0;margin:18px 0">
+<div class="invoice-wrap" style="max-width:680px;margin:0 auto 40px;background:#ffffff;border-radius:16px;box-shadow:0 1px 3px rgba(0,0,0,.06),0 10px 40px rgba(0,0,0,.04);overflow:hidden">
 
-    <table role="presentation" width="100%" style="font-size:14px;border-collapse:collapse">
-      ${row(`Subtotal (${d.qty} item)`, `${formatUsdc(d.subtotalMicro)} USDC`)}
-      ${row("Service fee (2%)", `${formatUsdc(d.buyerFeeMicro)} USDC`)}
-      ${row("TOTAL PAID", `${formatUsdc(d.totalMicro)} USDC`, true)}
-    </table>
-
-    <div style="margin-top:18px;padding:12px 14px;background:#ecfdf5;border-radius:10px;font-size:13px;color:#065f46">
-      <strong>${esc(d.status)}</strong> — your payment is held in escrow and is released to the
-      seller only after you confirm delivery.
+  <!-- Header -->
+  <div style="background:#0f172a;padding:36px 40px 32px;position:relative">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px">
+      <div>
+        <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.5px">SlimeMarket</div>
+        <div style="color:#94a3b8;font-size:13px;margin-top:4px">On-chain escrow marketplace</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:#64748b;margin-bottom:4px">Invoice</div>
+        <div style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.3px">${esc(d.invoiceNo)}</div>
+        <div style="font-size:12px;color:#94a3b8;margin-top:2px">${esc(d.issuedAt)}</div>
+      </div>
     </div>
 
-    <div style="margin-top:18px;font-size:12px;color:#64748b;word-break:break-all">
-      <p style="margin:4px 0">Order: <span style="font-family:ui-monospace,monospace">${esc(
-        d.orderId,
-      )}</span></p>
-      ${d.onChainOrderId ? `<p style="margin:4px 0">On-chain order id: <span style="font-family:ui-monospace,monospace">${esc(d.onChainOrderId)}</span></p>` : ""}
+    <!-- Status badge -->
+    <div style="margin-top:20px">
+      <span style="display:inline-block;padding:5px 14px;border-radius:999px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;background:${statusBg};color:${statusColor}">
+        ${esc(d.status)}
+      </span>
+      <span style="display:inline-block;margin-left:8px;padding:5px 14px;border-radius:999px;font-size:11px;font-weight:600;background:#1e293b;color:#94a3b8">
+        ${esc(d.networkLabel)}
+      </span>
+    </div>
+  </div>
+
+  <!-- Parties -->
+  <div style="padding:28px 40px;background:#fafbfc;border-bottom:1px solid #f1f5f9">
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:24px">
+      <div style="min-width:220px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:8px">Buyer</div>
+        <div style="font-size:14px;font-weight:600;color:#0f172a">${esc(d.buyerEmail ?? "—")}</div>
+      </div>
+      <div style="min-width:220px;text-align:right">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:8px">Seller</div>
+        <div style="font-size:14px;font-weight:600;color:#0f172a">${esc(d.storeName)}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Line Items -->
+  <div style="padding:32px 40px">
+    <table width="100%" style="border-collapse:collapse;font-size:14px">
+      <thead>
+        <tr>
+          <th align="left" style="padding:10px 0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;border-bottom:2px solid #e2e8f0">Item</th>
+          <th align="center" style="padding:10px 0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;border-bottom:2px solid #e2e8f0;width:80px">Qty</th>
+          <th align="right" style="padding:10px 0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;border-bottom:2px solid #e2e8f0;width:140px">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding:16px 0;border-bottom:1px solid #f1f5f9;vertical-align:top">
+            <div style="font-weight:600;color:#0f172a">${esc(d.itemName)}</div>
+            ${d.itemVariant ? `<div style="font-size:12px;color:#64748b;margin-top:2px">Variant: ${esc(d.itemVariant)}</div>` : ""}
+          </td>
+          <td align="center" style="padding:16px 0;border-bottom:1px solid #f1f5f9;color:#475569;vertical-align:top">${esc(String(d.qty))}</td>
+          <td align="right" style="padding:16px 0;border-bottom:1px solid #f1f5f9;color:#0f172a;font-weight:600;vertical-align:top;font-variant-numeric:tabular-nums">${formatUsdc(d.subtotalMicro)} USDC</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Totals -->
+    <div style="margin-top:8px;margin-left:auto;max-width:320px">
+      <table width="100%" style="border-collapse:collapse;font-size:14px">
+        <tr>
+          <td style="padding:10px 0;color:#64748b">Subtotal</td>
+          <td align="right" style="padding:10px 0;color:#0f172a;font-weight:500;font-variant-numeric:tabular-nums">${formatUsdc(d.subtotalMicro)} USDC</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 0;color:#64748b">Service fee <span style="font-size:11px;color:#94a3b8">(2%)</span></td>
+          <td align="right" style="padding:10px 0;color:#0f172a;font-weight:500;font-variant-numeric:tabular-nums">${formatUsdc(d.buyerFeeMicro)} USDC</td>
+        </tr>
+        <tr>
+          <td colspan="2" style="border-top:2px solid #e2e8f0"></td>
+        </tr>
+        <tr>
+          <td style="padding:14px 0;font-size:16px;font-weight:800;color:#0f172a">Total Paid</td>
+          <td align="right" style="padding:14px 0;font-size:18px;font-weight:800;color:#0f172a;font-variant-numeric:tabular-nums">${formatUsdc(d.totalMicro)} USDC</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Payment Info -->
+  <div style="padding:24px 40px;background:#f8fafc;border-top:1px solid #f1f5f9">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:12px">Payment Details</div>
+    <table width="100%" style="border-collapse:collapse;font-size:12px">
+      <tr>
+        <td style="padding:10px 0;color:#64748b;font-size:12px;border-bottom:1px solid #f1f5f9;width:160px">Method</td>
+        <td style="padding:10px 0;color:#0f172a;font-weight:600;font-size:12px;border-bottom:1px solid #f1f5f9">${esc(d.paymentMethod)}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px 0;color:#64748b;font-size:12px;border-bottom:1px solid #f1f5f9">Order ID</td>
+        <td style="padding:10px 0;color:#0f172a;font-size:12px;border-bottom:1px solid #f1f5f9;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,monospace">${esc(d.orderId)}</td>
+      </tr>
+      ${d.onChainOrderId ? `<tr>
+        <td style="padding:10px 0;color:#64748b;font-size:12px;border-bottom:1px solid #f1f5f9">On-chain Order</td>
+        <td style="padding:10px 0;color:#0f172a;font-size:12px;border-bottom:1px solid #f1f5f9;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,monospace">${esc(d.onChainOrderId)}</td>
+      </tr>` : ""}
       ${txLine}
-      <p style="margin:4px 0">Escrow contract: <span style="font-family:ui-monospace,monospace">${esc(
-        d.escrowAddress,
-      )}</span></p>
-      <p style="margin:12px 0 0">The 2% service fee is non-refundable.</p>
+      <tr>
+        <td style="padding:10px 0;color:#64748b;font-size:12px;vertical-align:top">Escrow Contract</td>
+        <td style="padding:10px 0;color:#0f172a;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;word-break:break-all">${esc(d.escrowAddress)}</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Footer -->
+  <div style="padding:24px 40px;background:#0f172a">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+      <div>
+        <div style="font-size:13px;font-weight:700;color:#fff">SlimeMarket</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px">Trustless escrow · ${esc(d.networkLabel)}</div>
+      </div>
+      <div style="text-align:right">
+        <a href="${esc(d.appUrl)}" style="color:#0891b2;font-size:12px;text-decoration:none">${esc(d.appUrl)}</a>
+        <div style="font-size:11px;color:#475569;margin-top:4px">Service fee non-refundable · Funds held in escrow until delivery confirmed</div>
+      </div>
     </div>
-  </td></tr>
-  <tr><td style="padding:16px 24px;background:#f8fafc;font-size:12px;color:#94a3b8">
-    <a href="${esc(d.appUrl)}" style="color:#0891b2">${esc(d.appUrl)}</a>
-  </td></tr>
-</table>
-</td></tr></table>
-</body></html>`;
+  </div>
+
+</div>
+
+</body>
+</html>`;
 }
 
 /** Build the invoice view-model from raw rows (pure — the unit under test). */
@@ -260,7 +367,7 @@ export async function sendOrderInvoice(
       storeName: (store?.name as string | undefined) ?? null,
       buyerEmail: email,
       escrowAddress: process.env.ESCROW_CONTRACT_ADDRESS ?? "",
-      explorerBase: process.env.ARC_EXPLORER_URL || "https://testnet.arcscan.app/tx/",
+      explorerBase: ARC_EXPLORER_TX_BASE,
       appUrl: process.env.NEXT_PUBLIC_APP_URL || "https://slimemarket.app",
       networkLabel:
         (process.env.ARC_CHAIN_ID ?? "") === "5042" ? "Arc Mainnet" : "Arc Testnet",

@@ -341,14 +341,14 @@ export interface UcwWalletSummary {
   state: string;
 }
 
-/** List the user's ARC-TESTNET wallets (filtered/mapped). */
+/** List the user's Arc wallets (mainnet "ARC" or testnet "ARC-TESTNET"). */
 export async function listUserWallets(userToken: string): Promise<UcwWalletSummary[]> {
   try {
     const sdk = requireSdk();
     const res = await sdk.listWallets({ userToken });
     const wallets = res.data?.wallets ?? [];
     return wallets
-      .filter((w) => w.blockchain === "ARC-TESTNET")
+      .filter((w) => w.blockchain === "ARC" || w.blockchain === "ARC-TESTNET")
       .map((w) => ({ id: w.id, address: w.address, blockchain: w.blockchain, state: w.state }));
   } catch (e) {
     throw mapUcwError(e);

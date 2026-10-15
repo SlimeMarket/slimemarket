@@ -30,7 +30,7 @@ async function main() {
 
   console.log("=== Import MarketEscrow to Circle SCP ===");
   console.log("  Contract:", ESCROW_ADDRESS);
-  console.log("  Blockchain: ARC-TESTNET");
+  console.log("  Blockchain:", process.env.CIRCLE_BLOCKCHAIN || "ARC-TESTNET");
   console.log("");
 
   const scp = initiateSmartContractPlatformClient({
@@ -47,7 +47,7 @@ async function main() {
     const response = await scp.importContract({
       name: "MarketEscrow",
       address: ESCROW_ADDRESS,
-      blockchain: "ARC-TESTNET" as any, // SCP supports Arc Testnet at runtime
+      blockchain: (process.env.CIRCLE_BLOCKCHAIN || "ARC-TESTNET") as any,
     });
 
     console.log("✓ Contract imported successfully!");

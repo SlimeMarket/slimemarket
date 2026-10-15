@@ -180,3 +180,93 @@ export async function getStoreReviews(storeUid: string): Promise<ReviewApiRow[]>
     });
   });
 }
+
+/** Rating summary shown above the review list on a product page. */
+export interface ReviewSummary {
+  avg: number;
+  count: number;
+  /** Number of reviews per star, index 0 = 1★ … index 4 = 5★. */
+  dist: [number, number, number, number, number];
+}
+
+export interface ProductReviewsResult {
+  items: ReviewApiRow[];
+  summary: ReviewSummary;
+}
+
+/**
+ * Verified-purchase reviews for a single PRODUCT (public).
+ *
+ * `reviews` has no product column — a review belongs to an ORDER, and the
+ * order knows the product. We therefore resolve the product's orders first and
+ * filter reviews by `order_id`. Deliberately two queries instead of one nested
+ * PostgREST join on `orders.product_id`: the embedded filter is easy to get
+ * subtly wrong (and silently returns nothing when it is), while two plain
+ * queries are trivially verifiable.
+ */
+export async function getProductReviews(productId: string): Promise<ProductReviewsResult> {
+  const empty: ProductReviewsResult = {
+    items: [],
+    summary: { avg: 0, count: 0, dist: [0, 0, 0, 0, 0] },
+  };
+  if (!productId) return empty;
+
+  const admin = supabaseAdminClient();
+
+  const { data: orders, error: oErr } = await admin
+    .from("orders")
+    .select("id, buyer_id")
+    .eq("product_id", productId)
+    .order("created_at", { ascending: false })
+    .limit(500);
+  if (oErr || !orders || orders.length === 0) return empty;
+
+  const orderIds = orders.map((o) => o.id as string);
+  const buyerByOrder = new Map<string, string>(
+    orders.map((o) => [o.id as string, (o.buyer_id as string) ?? ""]),
+  );
+
+  const { data: rows, error: rErr } = await admin
+    .from("reviews")
+    .select("order_id, display_name, rating, text, created_at")
+    .in("order_id", orderIds)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (rErr || !rows || rows.length === 0) return empty;
+
+  // Buyer avatars (best-effort — a missing avatar falls back to a gradient).
+  const buyerIds = [...new Set([...buyerByOrder.values()].filter(Boolean))];
+  const avatarByUser = new Map<string, string>();
+  if (buyerIds.length > 0) {
+    const { data: users } = await admin
+      .from("users")
+      .select("id, avatar_gradient")
+      .in("id", buyerIds);
+    for (const u of users ?? []) {
+      if (u.avatar_gradient) avatarByUser.set(u.id as string, u.avatar_gradient as string);
+    }
+  }
+
+  const items = rows.map((r) => {
+    const buyerId = buyerByOrder.get(r.order_id as string) ?? "";
+    return mapReview({
+      display_name: r.display_name as string | null,
+      rating: r.rating as number,
+      text: r.text as string | null,
+      created_at: r.created_at as string,
+      buyer_avatar: avatarByUser.get(buyerId) ?? null,
+    });
+  });
+
+  const dist: [number, number, number, number, number] = [0, 0, 0, 0, 0];
+  let sum = 0;
+  for (const it of items) {
+    const n = Math.min(5, Math.max(1, Math.round(it.rating)));
+    dist[n - 1] += 1;
+    sum += n;
+  }
+  const count = items.length;
+  const avg = count > 0 ? Math.round((sum / count) * 10) / 10 : 0;
+
+  return { items, summary: { avg, count, dist } };
+}
