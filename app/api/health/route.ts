@@ -1,6 +1,6 @@
 import { jsonOk, jsonError } from "@/lib/utils";
 import { isContractReady } from "@/lib/contracts/escrow-client";
-import { ARC_USDC_CONTRACT } from "@/lib/arc";
+import { ARC_USDC_CONTRACT, arcPublicClient } from "@/lib/arc";
 import { supabaseAdminClient } from "@/lib/supabase/admin-client";
 
 export const dynamic = "force-dynamic";
