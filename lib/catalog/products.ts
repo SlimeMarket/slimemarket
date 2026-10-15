@@ -277,6 +277,27 @@ export async function createProduct(
     }
   }
 
+  // FIX: flat (single-variant) instant stock was written ONLY to the legacy
+  // `products.stock_items` text[] array. `product_stock_items` — which the
+  // seller center and storefront count for available stock — stayed empty, so
+  // the two stores diverged the moment the seller restocked: the restock route
+  // writes to BOTH, but the original items existed in only one. Result: the
+  // product page said "3" while the seller center said "1". Mirror the flat
+  // items into `product_stock_items` so both sources always agree.
+  if (input.delivery === "instant" && !hasVariantStock && flatStockItems.length > 0) {
+    const rows = flatStockItems
+      .filter(s => typeof s === "string" && s.trim())
+      .map(secret => ({
+        product_id: productId,
+        variant_label: "Default",
+        secret: secret.trim(),
+        status: "available",
+      }));
+    if (rows.length > 0) {
+      await admin.from("product_stock_items").insert(rows);
+    }
+  }
+
   // Optional product image: upload to storage (fallback: inline data URL) then persist.
   if (input.img) {
     try {

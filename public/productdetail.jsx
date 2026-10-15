@@ -118,10 +118,22 @@ function ProductDetail({ product, onBuy, onStore, onBack, onChat }) {
   };
   // Total stock (used in the StatBox): sum of per-variant stock when present,
   // otherwise the legacy product-level stock.
+  //
+  // FIX: this used to fall back to `stockItems.length` (the legacy text[] array)
+  // for single-variant products, while the seller center and storefront counted
+  // `variantStock` (product_stock_items). The two sources diverged whenever a
+  // restock wrote to one but not the other, so the product page and the seller
+  // center showed different stock for the same listing. Prefer `variantStock`
+  // everywhere; fall back to the legacy array only when it is absent.
+  const variantStockTotal = (product.variantStock && typeof product.variantStock === 'object')
+    ? Object.values(product.variantStock).reduce((a, b) => a + (Number(b) || 0), 0)
+    : null;
   const totalStock = product.delivery === 'instant'
     ? (realVariants.length > 0
         ? realVariants.reduce((sum, v) => sum + variantStockOf(v), 0)
-        : (product.stockItems?.length ?? product.stock ?? 0))
+        : (variantStockTotal != null && Object.keys(product.variantStock).length > 0
+            ? variantStockTotal
+            : (product.stockItems?.length ?? product.stock ?? 0)))
     : (product.stock ?? 0);
 
   return (

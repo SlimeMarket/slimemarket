@@ -21,7 +21,7 @@ async function loadOwnedProduct(userId: string, productId: string) {
 
   const { data: product, error } = await admin
     .from("products")
-    .select("id, store_id, price, status")
+    .select("id, store_id, price, status, variants")
     .eq("id", productId)
     .maybeSingle();
   if (error) throw new Error(`failed to load product: ${error.message}`);
@@ -56,7 +56,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   try {
     const owned = await loadOwnedProduct(user.id, id);
     if ("error" in owned) return owned.error;
-    const { admin } = owned;
+    const { admin, product } = owned;
 
     // Build the patch from only the fields that were actually sent, so a partial
     // edit cannot blank out everything else.
@@ -86,7 +86,41 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       const price = Number(b.price);
       // Money: a non-positive price would let a buyer check out for free.
       if (!Number.isFinite(price) || price <= 0) return jsonError("price must be greater than 0", 400);
-      patch.price = Math.round(price * 1_000_000);
+      const priceMicro = Math.round(price * 1_000_000);
+      patch.price = priceMicro;
+
+      // FIX: the public product views (home / explore / product page) render the
+      // price from the `variants` jsonb, NOT from `products.price`. Editing the
+      // price here used to update only `products.price`, so every public view
+      // kept showing the OLD price while the seller center showed the new one.
+      // Keep the two in lock-step.
+      const existing = Array.isArray(product.variants)
+        ? (product.variants as { label?: string; price?: number | string }[])
+        : [];
+      if (existing.length === 0) {
+        patch.variants = [{ label: "Default", price: priceMicro }];
+      } else if (existing.length === 1) {
+        patch.variants = [{ ...existing[0], label: existing[0]?.label || "Default", price: priceMicro }];
+      } else {
+        // Multi-variant product: the seller edits individual variants through the
+        // variants editor, so only retarget the base 'Default' row if it exists.
+        const idx = existing.findIndex((v) => (v?.label || "Default") === "Default");
+        if (idx >= 0) {
+          patch.variants = existing.map((v, i) => (i === idx ? { ...v, price: priceMicro } : v));
+        }
+      }
+    }
+
+    // Explicit variants payload (future-proofs the variants editor): accepts
+    // decimal prices and stores them as micro-USDC.
+    if (Array.isArray(b.variants)) {
+      const rows = (b.variants as { label?: unknown; price?: unknown }[])
+        .map((v) => ({
+          label: String(v?.label ?? "Default").trim() || "Default",
+          price: Math.round(Number(v?.price) * 1_000_000),
+        }))
+        .filter((v) => v.label && Number.isFinite(v.price) && v.price > 0);
+      if (rows.length > 0) patch.variants = rows;
     }
 
     if (b.stock !== undefined) {
