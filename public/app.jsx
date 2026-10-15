@@ -441,6 +441,19 @@ function App() {
         } else if (data.needsPinSetup) {
           notify(tr('pin.bootIncomplete', 'Wallet setup incomplete — retry from Profile'), 'warn');
         }
+
+        // If we have no wallet address yet, poll a few times — Circle indexes a
+        // freshly-created wallet asynchronously, so it can be missing from the
+        // very first /api/wallet read right after the hosted-UI challenge. This
+        // makes the address appear without the user having to reload.
+        if (!ME.wallet) {
+          let tries = 0;
+          const t = setInterval(async () => {
+            tries += 1;
+            try { await refreshWallet(); } catch (e) { /* ignore */ }
+            if (ME.wallet || tries >= 6) clearInterval(t);
+          }, 2500);
+        }
       })
       .catch((err) => {
         if (err && (err.status === 401 || err.status === 403)) {
@@ -514,6 +527,15 @@ function App() {
         'success',
       );
       refreshWallet();
+      // Circle indexes the new wallet asynchronously — poll briefly so the
+      // address shows up without a manual reload.
+      (function pollForWallet(n) {
+        if (ME.wallet || n <= 0) return;
+        setTimeout(async () => {
+          try { await refreshWallet(); } catch (e) { /* ignore */ }
+          pollForWallet(n - 1);
+        }, 2500);
+      })(6);
       // auto-retry the action that was blocked by the missing PIN
       // (e.g. the checkout that returned 422). One-shot.
       const retry = pinRetryRef.current;
@@ -643,6 +665,12 @@ function App() {
   const refreshWallet = async () => {
     try {
       const w = await api('/api/wallet');
+      // FIX: the wallet address lives on the global ME object and was only ever
+      // set during the boot /api/auth/me restore. After a wallet is created
+      // mid-session (Circle hosted-UI challenge), ME.wallet stayed empty and the
+      // Wallet page showed "Not available" until a full page reload. Pick the
+      // address up here so it appears immediately.
+      if (w && w.address) ME.wallet = w.address;
       // NOTE: divide as NUMBER, never `BigInt(x) / 1000000n`. BigInt division is
       // integer division, so it silently truncates the cents: 17999328 micro is
       // 17.999328 USDC but 17999328n / 1000000n is 17n — every balance looked
