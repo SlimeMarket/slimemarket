@@ -302,17 +302,46 @@ function AuthScreen({ onAuthed }) {
     }
   };
 
-  // wave12.C (Circle arc-ecommerce UX adoption) — NO auto PIN modal at signup.
-  // The old wavel1.H code ran Circle's hosted "create PIN + wallet" challenge
-  // right after the unified call, blocking every new user behind a second
-  // popup. The single PIN prompt is now the app-launch gate in app.jsx, which
-  // offers an explicit "Later — pay with your own wallet" skip: the external
-  // EOA gasless path needs no PIN and no Slime Wallet. If the user later
-  // chooses Slime Wallet checkout, the 422 PIN_SETUP_REQUIRED retry modal
-  // (app.jsx) re-prompts them, and the Profile PIN page stays available.
+  // FIX (mainnet wallet creation): this used to be an intentional no-op, which
+  // meant the OTP-verify path NEVER created a Circle wallet. /api/auth/unified
+  // only *lists* wallets — creation requires executing the initialize
+  // challenge (`POST /v1/w3s/user/initialize` → challengeId → W3SSdk.execute).
+  // With this a no-op, new users logged in, saw "Wallet Address Not available"
+  // and Circle Console showed zero wallets.
+  //
+  // Now: if the session reports needsPinSetup, run the Circle hosted-UI
+  // challenge IMMEDIATELY after OTP verification (seamless — no extra button
+  // press, no blocking gate). The user sets their PIN once; the wallet is
+  // created in the same step. On every later login the user already has a
+  // wallet, so needsPinSetup is false and nothing is shown.
   const maybeRunPinSetup = async (d) => {
-    // intentionally a no-op — see wave12.C note above
-    return;
+    if (!d || !d.needsPinSetup || !d.pinSetupChallengeId) return;
+    if (typeof window.executeUcwChallenge !== 'function') return;
+
+    try {
+      setOtpError(tr('pin.walletCreating', 'Creating your wallet on Arc…'));
+      const result = await window.executeUcwChallenge(d.pinSetupChallengeId, { isPinSetup: true });
+      if (!result) {
+        // null = no valid UCW session; leave it to the in-app retry path.
+        console.warn('[auth] wallet challenge returned null — will retry in app');
+        return;
+      }
+      // Tell the server to read the new wallet back from Circle and persist it.
+      try {
+        await fetch(API + '/api/wallet/ucw-provisioning-complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+          credentials: 'include',
+        });
+      } catch (e2) {
+        console.warn('[auth] provisioning-complete failed (wallet still created):', e2.message);
+      }
+    } catch (e) {
+      // Never block login on a failed wallet challenge — the user can finish
+      // setup from Profile / at first checkout.
+      console.warn('[auth] wallet setup deferred:', e && e.message);
+    }
   };
 
   const runProvisioning = async (uToken, eKey, uname) => {
