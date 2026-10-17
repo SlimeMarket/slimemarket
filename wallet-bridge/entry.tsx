@@ -316,6 +316,10 @@ const WalletBridge: WalletBridgeAPI = {
 };
 
 (window as any).WalletBridge = WalletBridge;
+// Build stamp — lets anyone confirm in the console which bundle the tab is
+// actually running (`window.__SLIME_WB_BUILD`). Without it, a stale cached
+// bundle is indistinguishable from a broken fix.
+(window as any).__SLIME_WB_BUILD = "20261017b";
 
 // ── Mount (wait for DOM ready — script may load in <head>) ──────────
 function mount() {

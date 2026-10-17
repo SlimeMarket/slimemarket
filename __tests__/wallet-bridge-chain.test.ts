@@ -88,6 +88,18 @@ describe("/config.js exposes the chain the server is actually on", () => {
 describe("the shipped bundle matches the source", () => {
   const bundlePath = resolve(ROOT, "public/wallet-bridge.js");
 
+  it("stamps the build so a stale cached bundle is identifiable", () => {
+    expect(read("wallet-bridge/entry.tsx")).toContain("__SLIME_WB_BUILD");
+  });
+
+  it("does not hardcode the chain name in the UI shell", () => {
+    // The sidebar said "Arc Testnet" on a mainnet deploy — the label must come
+    // from SLIME_CONFIG.chain, otherwise it hides which network is live.
+    const app = stripComments(read("public/app.jsx"));
+    expect(app).not.toMatch(/>\s*Arc Testnet\s*</);
+    expect(app).toContain("SLIME_CONFIG");
+  });
+
   it("contains no testnet chain id", () => {
     if (!existsSync(bundlePath)) return; // not built in this checkout
     const bundle = readFileSync(bundlePath, "utf8");

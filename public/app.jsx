@@ -115,7 +115,11 @@ function Sidebar({ active, setView, open, setOpen, role, guest }) {
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400"></span>
             </span>
             <div className="leading-tight">
-              <div className="text-xs font-medium text-arc-text">Arc Testnet</div>
+              {/* Chain label comes from /config.js (SLIME_CONFIG.chain), not a
+                  hardcoded string. It said "Arc Testnet" on a live mainnet
+                  deploy, which made a fixed checkout look broken and hid which
+                  network the app was really on. */}
+              <div className="text-xs font-medium text-arc-text">{(((window.SLIME_CONFIG || {}).chain || {}).name) || 'Arc'}</div>
               <div className="text-[10px] text-arc-faint">Gas ~0.001 USDC · Online</div>
             </div>
           </div>
