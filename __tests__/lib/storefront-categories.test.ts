@@ -62,13 +62,12 @@ describe("storefront categories", () => {
     }
   });
 
-  it("the API treats 'All' as the no-filter sentinel", () => {
+  it("the API treats 'All' (and 'Semua') as the no-filter sentinel", () => {
     const src = read("lib/catalog/products.ts");
-    expect(src).toMatch(/cat\s*!==\s*"All"/);
-    // The pre-rename sentinel must not come back in a COMPARISON — nothing
-    // sends it, so it silently meant `category = 'Semua'` → empty catalog.
-    // (Matching the bare string would also flag the comment that documents this,
-    // hence checking the comparison shapes rather than the literal.)
+    // `All` is the storefront sentinel; `Semua` is the Indonesian spelling some
+    // callers still send. Both mean "no filter" — treating either as a category
+    // name returns an empty catalog.
+    expect(src).toMatch(/\/\^\(all\|semua\)\$\/i/);
     expect(src).not.toMatch(/cat\s*[!=]==\s*"Semua"/);
     expect(src).not.toMatch(/eq\(\s*"category"\s*,\s*"Semua"\s*\)/);
   });
@@ -79,9 +78,12 @@ describe("storefront categories", () => {
     expect(src).not.toMatch(/onCat\(c\.id,\s*c\.label\)/);
   });
 
-  it("goStorefront actually forwards the category", () => {
+  it("goStorefront normalises the category before setting it", () => {
     const src = read("public/app.jsx");
-    expect(src).toMatch(/setStoreCat\(cat \|\| 'All'\)/);
+    // 'Semua' (Indonesian for "All") used to be forwarded as a category name,
+    // which the storefront compares against the English sentinel — so every
+    // topbar search filtered out every product and returned "no results".
+    expect(src).toMatch(/setStoreCat\(\s*!cat\s*\|\|\s*cat\s*===\s*'Semua'\s*\?\s*'All'\s*:\s*cat\s*\)/);
     // Both Storefront renders must receive it, or one of the two shells
     // (guest vs authed) silently loses the filter.
     const renders = src.match(/<Storefront[^>]*\/>/g) ?? [];
