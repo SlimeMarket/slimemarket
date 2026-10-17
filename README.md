@@ -15,6 +15,23 @@ Built on **Arc**, Circle's blockchain where **USDC is the native gas token**.
 
 ---
 
+## Live on Arc mainnet — verified on-chain
+
+The app is deployed and running on Arc **mainnet** (chain id `5042`). Everything below is a real
+transaction, not a fixture or a testnet run — click through and check it on the explorer:
+
+| Flow | Transaction | What it proves |
+|---|---|---|
+| **Buy with an external wallet** (Rabby) | [`0xb35c3fac…0ea5c`](https://arc.etherscan.io/tx/0xb35c3fac051f5611ee3c06b117f79a9e7dd8c11563c22b8695f4201740e0ea5c) | The buyer signs an **EIP-2612 permit** (no on-chain tx, no gas from their side); the operator relays `createOrderFor` into `MarketEscrow` and **0.102 USDC** (0.10 item + 0.002 fee) is locked against the order. |
+| **Send from the dashboard** (Circle UCW) | [`0x83d285c8…3a90e`](https://arc.etherscan.io/tx/0x83d285c8522f5afe17023047216f43ebe542212a96303f5670c1601d2b13a90e) | An email-OTP **user-controlled wallet** (`0x655d…994d`) sends **0.144 USDC** to an external address after a PIN challenge. Funds move from the user's own wallet — no platform key can move them. |
+
+Settled on Arc mainnet — escrow
+[`0xfe76c6…9d28`](https://arc.etherscan.io/address/0xfe76c63289dd8b5693277df261e4938bd8779d28),
+USDC `0x3600…0000`. Decoded calldata, logs and re-verification commands:
+[`docs/MAINNET_VERIFICATION.md`](docs/MAINNET_VERIFICATION.md).
+
+---
+
 ## Why Arc
 
 The escrow contract settles in USDC, so the chain had to treat USDC as a first-class citizen:
@@ -246,7 +263,7 @@ This is a system that moves money, so the claims above are backed by tests you c
 
 | Suite | Command | What it proves | Count |
 |---|---|---|---|
-| Unit | `npm run test:unit` | Fee math, guards, schemas, permit/UCW logic | **802** (70 files) |
+| Unit | `npm run test:unit` | Fee math, guards, schemas, permit/UCW logic | **818** (73 files) |
 | Contract | `npm run test:contracts` | Escrow semantics, guard rails, settlement clocks | **106** |
 | **On-chain** | `npm run test:onchain` | Full lifecycle against the **live Arc testnet contract**, real transactions | **23** |
 | E2E UI | `npx playwright test` | SPA flows in a real browser | **10** |
@@ -260,6 +277,11 @@ caller, delivery past deadline, release while undelivered, double funding).
 The full product flow has also been exercised end-to-end **through the UI with a freshly created
 account**: real email OTP login → PIN/wallet setup → buy → seller proceeds with collateral →
 mark delivered → buyer confirms → released.
+
+And two flows are proven with **real money on Arc mainnet** — an external-wallet checkout
+(permit → relayed `createOrderFor`) and a UCW dashboard send (PIN-gated transfer). Both
+transactions are linked at the top of this README and decoded step by step in
+[`docs/MAINNET_VERIFICATION.md`](docs/MAINNET_VERIFICATION.md).
 
 ---
 
@@ -444,18 +466,19 @@ docs/               runbooks (mainnet, VPS, testing)
 
 ## Status
 
-Running on **Arc testnet**. The contract is deployed and verified, the full escrow lifecycle is
-proven on-chain, and the app is wired to the live contract. Mainnet migration is staged in
-`docs/MAINNET_LAUNCH.md` behind a preflight that checks the two things that actually kill an
-escrow launch: an empty platform wallet and an empty deployer.
+Running on **Arc mainnet**. The contract is deployed, the full escrow lifecycle is proven on-chain,
+and the app is wired to the live contract. (`npm run test:onchain` still drives the Arc **testnet**
+deployment, so contract changes are exercised before they reach mainnet.)
 
-### Live on Arc testnet
+### Live on Arc mainnet
 
 | | |
 |---|---|
-| **Network** | Arc testnet (chain id `5042002`) |
-| **MarketEscrow** | [`0x86feedea5c340f0fb0b0f9649691e87f5717b345`](https://testnet.arcscan.app/address/0x86feedea5c340f0fb0b0f9649691e87f5717b345) |
-| **Settlement token** | USDC (native gas + value) |
+| **Network** | Arc mainnet (chain id `5042`) |
+| **MarketEscrow** | [`0xfe76c63289dd8b5693277df261e4938bd8779d28`](https://arc.etherscan.io/address/0xfe76c63289dd8b5693277df261e4938bd8779d28) |
+| **Settlement token** | USDC `0x3600…0000` — also the native gas token |
+| **Explorer** | [arc.etherscan.io](https://arc.etherscan.io) |
+| **Proof of use** | [external-wallet checkout](https://arc.etherscan.io/tx/0xb35c3fac051f5611ee3c06b117f79a9e7dd8c11563c22b8695f4201740e0ea5c) · [UCW dashboard send](https://arc.etherscan.io/tx/0x83d285c8522f5afe17023047216f43ebe542212a96303f5670c1601d2b13a90e) |
 
 You can verify the deployment yourself — the contract exposes its own parameters on-chain:
 

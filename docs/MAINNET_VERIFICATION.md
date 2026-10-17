@@ -57,16 +57,54 @@ Log yang dihasilkan:
    (`createOrderFor`), jadi `onChainOrderId` di DB punya pasangan nyata di chain.
 4. Chain yang dipakai **mainnet 5042** — bukan `5042002` (testnet).
 
+### 2. Send dari dashboard (Circle User-Controlled Wallet)
+
+| Field | Nilai |
+|---|---|
+| Tx hash | `0x83d285c8522f5afe17023047216f43ebe542212a96303f5670c1601d2b13a90e` |
+| Explorer | https://arc.etherscan.io/tx/0x83d285c8522f5afe17023047216f43ebe542212a96303f5670c1601d2b13a90e |
+| Block | `26396070` (`0x192c5a6`) |
+| Status | `success` (`0x1`) |
+| From | `0x655d9ae2adec748cd7269d8dec6d85afbc86994d` (UCW wallet milik user) |
+| To | `0x3600000000000000000000000000000000000000` (USDC) |
+| Method | `transfer(address,uint256)` — selector `0xa9059cbb` |
+| Amount | `0x23280` = **144000 micro = 0.144 USDC** |
+| Destination | `0xD36583346C4Fe00730419260aAc490CFe286feE2` |
+| Gas used | `0xbf36` (48.950) |
+
+Log yang dihasilkan:
+
+- `Transfer` di USDC `0x3600…0000` (6 dp): `from 0x655d…994d` → `to 0xD365…feE2`, `value = 0x23280`.
+- `Transfer` di native USDC emitter (`0xffff…fffe`, 18 dp) untuk jumlah yang sama
+  (`0x1ff973cafa80000` = 0.144 USDC) — di Arc native dan ERC-20 adalah saldo yang sama.
+
+**Yang dibuktikan:**
+
+1. Wallet **user-controlled** (login email OTP, PIN di device user) benar-benar bisa mengirim
+   USDC keluar — bukan wallet platform, bukan custodial.
+2. Dana keluar dari alamat milik user (`0x655d…994d`), jadi tidak ada kunci platform yang bisa
+   memindahkan saldo user.
+3. Jalur token yang dipakai adalah USDC **ERC-20** (`0x3600…0000`, 6 dp) — sama dengan yang
+   dipakai escrow, dan sama dengan hasil resolve `lib/circle/usdc-token.ts`.
+4. Transfer disetujui lewat **PIN challenge** Circle (hosted UI), bukan raw private key.
+
 ## Cara verifikasi ulang
 
 ```bash
+# checkout (external wallet → escrow)
 curl -s https://rpc.mainnet.arc.io -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt",
        "params":["0xb35c3fac051f5611ee3c06b117f79a9e7dd8c11563c22b8695f4201740e0ea5c"]}'
+
+# send dari dashboard (UCW → external address)
+curl -s https://rpc.mainnet.arc.io -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt",
+       "params":["0x83d285c8522f5afe17023047216f43ebe542212a96303f5670c1601d2b13a90e"]}'
 ```
 
-Cek: `result.status == "0x1"`, `result.to` = escrow, dan log `Approval` dengan
-`spender = 0xfe76…9d28`.
+Cek untuk keduanya: `result.status == "0x1"`. Di tx checkout, `result.to` = escrow dan ada log
+`Approval` dengan `spender = 0xfe76…9d28`. Di tx send, `result.to` = USDC `0x3600…0000` dan ada log
+`Transfer` dari `0x655d…994d` ke `0xD365…feE2` sebesar `0x23280` (0.144 USDC).
 
 ## Konfigurasi yang dibutuhkan
 
