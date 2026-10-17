@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { supabaseAdminClient } from "@/lib/supabase/admin-client";
-import { CIRCLE_USDC_TOKEN_ID } from "@/lib/arc";
 import { arcPublicClient } from "@/lib/arc";
+import { resolveUsdcTokenIds } from "@/lib/circle/usdc-token";
 import type { CurrentUser } from "@/lib/auth-ucw";
 import { parseUsdc, formatUsdc } from "@/lib/money";
 import { validateArcAddress } from "@/lib/arc";
@@ -91,13 +91,38 @@ export async function initiateUcwSendChallenge(args: {
 }): Promise<UcwSendChallengeResult> {
   const { user, dest, amountMicro, walletId, circleWalletId, userToken } = args;
 
-  const { challengeId } = await createTransferChallenge({
-    walletId: circleWalletId,
-    destinationAddress: dest,
-    amountDecimal: formatUsdc(amountMicro),
-    tokenId: CIRCLE_USDC_TOKEN_ID,
-    userToken,
-  });
+  // Token id comes from the wallet's own balance list, not from the env alone:
+  // on Arc the entity exposes both native USDC (18 dp) and the ERC-20 interface
+  // (6 dp), and a placeholder env value makes Circle reject the transfer with
+  // the opaque "API parameter invalid" the user saw on /wallet.
+  const tokenIds = await resolveUsdcTokenIds(circleWalletId);
+  const amountDecimal = formatUsdc(amountMicro);
+
+  let challengeId = "";
+  let lastErr: unknown = null;
+  for (const tokenId of tokenIds) {
+    try {
+      const res = await createTransferChallenge({
+        walletId: circleWalletId,
+        destinationAddress: dest,
+        amountDecimal,
+        tokenId,
+        userToken,
+      });
+      challengeId = res.challengeId;
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      // Circle answers an unusable token id with a 400 "API parameter invalid".
+      // Arc exposes the same USDC as native (18 dp) and ERC-20 (6 dp), so try
+      // the other representation before failing the user's send.
+      if (!/parameter invalid|invalid token|token not found/i.test(msg)) throw e;
+      console.warn(`[ucw-send] Circle rejected token ${tokenId}, trying next variant`);
+    }
+  }
+  if (lastErr) throw lastErr;
 
   const admin = supabaseAdminClient();
   const { data: txRow, error: txErr } = await admin

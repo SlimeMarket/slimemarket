@@ -117,9 +117,12 @@ export const CIRCLE_USDC_TOKEN_ID =
 export function assertArcNetworkConfig(): void {
   if (!IS_ARC_MAINNET) return;
   const problems: string[] = [];
-  if (!process.env.CIRCLE_USDC_TOKEN_ID) {
+  // A placeholder all-zero UUID passes a truthiness check but is rejected by
+  // Circle with "API parameter invalid" on every transfer — the exact failure
+  // that broke /wallet → Send on mainnet. Treat it as missing.
+  if (!process.env.CIRCLE_USDC_TOKEN_ID || /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(process.env.CIRCLE_USDC_TOKEN_ID.trim())) {
     problems.push(
-      "CIRCLE_USDC_TOKEN_ID is still the testnet default — set the Arc MAINNET token id",
+      "CIRCLE_USDC_TOKEN_ID is missing or the all-zero placeholder — set the Arc MAINNET USDC token id",
     );
   }
   if (!process.env.ESCROW_CONTRACT_ADDRESS) {

@@ -1,5 +1,5 @@
 import { circleDeveloperSdk } from "@/lib/circle/client";
-import { CIRCLE_USDC_TOKEN_ID } from "@/lib/arc";
+import { resolveUsdcTokenId } from "@/lib/circle/usdc-token";
 import { arcPublicClient, ARC_USDC_CONTRACT, ARC_CHAIN_ID, ARC_RPC_URL } from "@/lib/arc";
 import { formatUsdc } from "@/lib/money";
 import type { Hex } from "viem";
@@ -152,9 +152,13 @@ export async function sendUsdc(
   const sdk = getSdk();
   // Circle API expects amount in DISPLAY units (e.g. "5.5" USDC), NOT micro-USDC.
   // formatUsdc converts micro-USDC bigint → human-readable string.
+  // Token id is resolved from the wallet's own balances: Arc exposes native USDC
+  // and the ERC-20 interface, and a placeholder env value fails with the opaque
+  // "API parameter invalid".
+  const tokenId = await resolveUsdcTokenId(fromWalletId);
   const resp = await sdk.createTransaction({
     walletId: fromWalletId,
-    tokenId: CIRCLE_USDC_TOKEN_ID,
+    tokenId,
     amount: [formatUsdc(amountMicro)],
     destinationAddress: toAddress,
     ...TX_OPTS,
