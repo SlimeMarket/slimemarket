@@ -540,6 +540,27 @@ function UcwBridgePanel({ notify, onFunded, inputCls }) {
 }
 
 
+// Quiet stat tile for the wallet bento: one tone per metric, no glow, no lift.
+function WalletStat({ label, value, unit, hint, icon, tone = 'neutral' }) {
+  const tones = {
+    emerald: 'text-emerald-400',
+    rose: 'text-rose-400',
+    amber: 'text-amber-400',
+    neutral: 'text-arc-muted',
+  };
+  return (
+    <div className="rounded-2xl bg-arc-surface ring-1 ring-arc-border p-4">
+      <div className="flex items-center gap-1.5 text-[10px] font-pixel uppercase tracking-[0.18em] text-arc-faint">
+        <Icon name={icon} size={11} /> {label}
+      </div>
+      <div className="mt-2.5 font-mono text-lg font-semibold tabular-nums text-arc-text">
+        {value} <span className="text-[10px] font-normal text-arc-faint">{unit}</span>
+      </div>
+      {hint && <div className={`mt-1 text-[10px] ${tones[tone] || tones.neutral}`}>{hint}</div>}
+    </div>
+  );
+}
+
 function Balance({ usdc, banks, onWithdraw, onAddBank, onWithdrawCrypto, txs, notify }) {
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('qris');
@@ -668,104 +689,129 @@ function Balance({ usdc, banks, onWithdraw, onAddBank, onWithdrawCrypto, txs, no
   const cryptoValid = cryptoAddr.startsWith('0x') && cryptoAddr.length === 42 && parseFloat(cryptoAmt) > 0 && parseFloat(cryptoAmt) <= usdc;
   useEffect(() => { if (!isID && method === 'qris') setMethod('card'); }, [isID, method]);
 
+  // ── derived display values (bento) ──────────────────────────────
+  const chainCfg = (window.SLIME_CONFIG && window.SLIME_CONFIG.chain) || null;
+  const chainLabel = (chainCfg && chainCfg.name) || 'Arc';
+  const chainId = chainCfg && chainCfg.id ? String(chainCfg.id) : '';
+  const inTotal = histList.filter(t => t.type === 'in').reduce((a, t) => a + (Number(t.amount) || 0), 0);
+  const outTotal = histList.filter(t => t.type !== 'in').reduce((a, t) => a + (Number(t.amount) || 0), 0);
+  const pendingCount = histList.filter(t => String(t.status || '').toUpperCase() === 'PENDING').length;
   return (
     <div className="anim-view">
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
-        <h1 className="text-xl font-bold text-white">{tr('balance.pageTitle','Balance & Transactions')}</h1>
-        {!custodialHidden && (
-        <button className="text-sm text-arc-accent hover:brightness-125 inline-flex items-center gap-1.5 transition"><Icon name="credit-card" size={15} /> {tr('balance.manageAccounts','Manage Accounts')}</button>
-        )}
-      </div>
-
-      {/* total balance — premium larger card with gradient + glow */}
-      <div className="relative overflow-hidden rounded-3xl ring-1 ring-arc-primary/30 bg-gradient-to-br from-arc-primary/10 to-arc-surface arc-mesh p-8 mb-6 shadow-glow-emerald transition-all duration-300 hover:ring-arc-primary/50 hover:-translate-y-0.5 hover:shadow-glow">
-        <div className="absolute -right-6 -bottom-6 opacity-20"><SlimeLogo size={180} /></div>
-        <div className="relative flex items-center justify-between">
-          <div>
-            <div className="text-xs uppercase tracking-wide text-arc-muted flex items-center gap-1.5"><Icon name="wallet" size={13} /> {tr('balance.totalBalance','Total Balance')}</div>
-            <div className="mt-2"><Usdc value={usdc} className="text-5xl font-extrabold text-white" size="text-lg" /></div>
-            {custodialHidden && (
-              <div className="mt-3">
-                <div className="text-xs text-arc-muted">{tr('balance.ownWalletNote','your own wallet — funds arrive on-chain automatically')}</div>
-                {ME.wallet ? (
-                  <div className="mt-2 flex items-center gap-2.5 flex-wrap">
-                    <CopyChip value={ME.wallet} displayValue={ME.wallet.slice(0, 10) + '…' + ME.wallet.slice(-6)} />
-                    <span className="text-[11px] text-arc-faint inline-flex items-center gap-1"><Icon name="arrow-down-left" size={12} className="text-arc-accent" /> {tr('balance.receiveShare','Receive: share this address')}</span>
-                  </div>
-                ) : null}
-              </div>
-            )}
-          </div>
-          <div className="w-20 h-20 rounded-3xl bg-arc-surface2 ring-1 ring-arc-border flex items-center justify-center transition-transform duration-300 hover:scale-110 hover:shadow-glow">
-            <Icon name="wallet" size={32} className="text-arc-accent animate-bounce" />
-          </div>
+      {/* ── header ───────────────────────────────────────────────────── */}
+      <header className="flex items-end justify-between gap-3 flex-wrap mb-6">
+        <div>
+          <div className="text-[10px] font-pixel uppercase tracking-[0.22em] text-arc-faint">{tr('balance.kicker','WALLET')}</div>
+          <h1 className="mt-1.5 text-2xl font-bold tracking-tight text-white">{tr('balance.pageTitle','Balance & Transactions')}</h1>
         </div>
-      </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-arc-surface2/70 ring-1 ring-arc-border px-2.5 py-1.5 text-[11px] text-arc-muted">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
+            {chainLabel}{chainId ? ' · ' + chainId : ''}
+          </span>
+          {!custodialHidden && (
+            <button type="button"
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-arc-muted hover:text-arc-text hover:bg-arc-surface2/60 ring-1 ring-transparent hover:ring-arc-border transition-colors">
+              <Icon name="credit-card" size={14} /> {tr('balance.manageAccounts','Manage Accounts')}
+            </button>
+          )}
+        </div>
+      </header>
 
-      {/* Add funds — fiat onramp / bridge / swap via Circle Arc App Kit.
-          Replaces the hand-rolled Gateway deposit+withdraw card: App Kit owns
-          those flows now (Gateway is an implementation detail under it), so
-          keeping a second half-built path here would just be two ways to get it
-          wrong. The Gateway unified balance stays visible when non-zero. */}
-      <div id="add-funds" className="scroll-mt-4">
-        <AddFundsPanel notify={notify} onFunded={() => window.refreshWallet?.()} />
-      </div>
+      {/* ── hero: balance + address, then one row of stats ───────────── */}
+      <section className="relative overflow-hidden rounded-3xl bg-arc-surface ring-1 ring-arc-border p-6 sm:p-7 mb-4">
+        {/* One soft light source instead of the old logo watermark + glow ring. */}
+        <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-24 h-56 w-56 rounded-full bg-emerald-500/10 blur-3xl" />
+        <div className="relative grid grid-cols-1 md:grid-cols-[1.35fr_1fr] gap-6 md:gap-8">
+          <div>
+            <div className="flex items-start justify-between gap-3">
+              <span className="text-[10px] font-pixel uppercase tracking-[0.22em] text-arc-faint">{tr('balance.totalBalance','Total Balance')}</span>
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 ring-1 ring-emerald-500/25 px-2 py-1 text-[10px] font-medium text-emerald-300">
+                <Icon name="shield-check" size={11} /> {tr('balance.nonCustodial','NON-CUSTODIAL')}
+              </span>
+            </div>
 
-      {gwBalance != null && parseFloat(gwBalance) > 0 && (
-        <Card className="p-4 mb-5 ring-1 ring-violet-500/30 bg-gradient-to-br from-violet-500/10 to-arc-surface2/30">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs uppercase tracking-wide text-arc-faint flex items-center gap-1.5">
-                <Icon name="layers" size={13} className="text-violet-400" /> {tr('af.gwBalance', 'Gateway unified balance')}
-              </div>
-              <div className="mt-1.5 text-xl font-bold text-violet-300 font-mono" id="gateway-balance-display">{gwBalance} USDC</div>
-              <div className="text-[11px] text-arc-faint mt-1">{tr('af.gwNote', 'Held in Circle Gateway across chains — withdraw from the Circle console or bridge it to Arc.')}</div>
+            <div className="mt-4">
+              <Usdc value={usdc} className="text-[2.6rem] sm:text-[3.1rem] leading-none font-semibold tracking-tight text-white" size="text-sm" />
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-2">
+              <Btn variant="emerald" icon="arrow-up-from-line" onClick={() => setWalletAction('send')}>{tr('c.send','Send')}</Btn>
+              {!custodialHidden && (
+                <Btn variant="outline" icon="plus" onClick={() => document.getElementById('add-funds')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{tr('ud.topup','Top Up')}</Btn>
+              )}
+              <Btn variant="ghost" icon="layers" onClick={() => document.getElementById('add-funds')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{tr('balance.addFundsShort','Add funds')}</Btn>
             </div>
           </div>
-        </Card>
-      )}
 
-      {/* MPC Wallet — .C2 (moved from /profile). always shown —
-          this IS the non-custodial internal wallet: address = where on-chain
-          releases arrive; Send = UCW TRANSFER challenge (user's own PIN,
-          ). Only the fiat "Top Up" shortcut is hidden while its
-          target section (custodial fiat flow) is hidden. */}
-      <div className="relative overflow-hidden rounded-2xl ring-1 ring-arc-primary/25 bg-gradient-to-br from-arc-primary/20 via-arc-surface to-arc-surface2/50 p-5 mb-5 transition-all duration-300 hover:shadow-glow hover:-translate-y-0.5">
-        <div className="relative">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wide text-arc-accent flex items-center gap-1.5"><Icon name="shield" size={13} /> {tr('ud.mpcWallet','Circle MPC Wallet')}</span>
-            <PixBadge color="blue">{tr('balance.nonCustodial','NON-CUSTODIAL')}</PixBadge>
-          </div>
-          <div className="mt-4">
-            <div className="text-[11px] text-arc-faint mb-1.5">{tr('ud.walletAddress','Wallet Address')}</div>
-            <CopyChip value={ME.wallet || 'Not available'} displayValue={ME.wallet ? ME.wallet.slice(0, 10) + '…' + ME.wallet.slice(-6) : 'Not available'} />
-          </div>
-          <div className="h-px bg-arc-border my-4"></div>
-          <div className="text-[11px] text-arc-faint">{tr('ud.usdcBalance','USDC Balance')}</div>
-          <div className="mt-1"><Usdc value={usdc} className="text-3xl font-bold text-emerald-300" /></div>
-          <div className="flex gap-2 mt-4">
-            {!custodialHidden && (
-              <Btn variant="emerald" size="sm" full icon="plus" className="transition-all duration-200 hover:scale-[1.02] hover:shadow-glow" onClick={() => document.getElementById('add-funds')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{tr('ud.topup','Top Up')}</Btn>
-            )}
-            <Btn variant="outline" size="sm" full icon="arrow-up-from-line" className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-glow" onClick={() => setWalletAction('send')}>{tr('c.send','Send')}</Btn>
+          <div className="md:border-l md:border-arc-border md:pl-8 flex flex-col justify-center">
+            <div className="text-[10px] font-pixel uppercase tracking-[0.22em] text-arc-faint">{tr('balance.yourAddress','YOUR ADDRESS')}</div>
+            <div className="mt-2">
+              {ME.wallet
+                ? <CopyChip value={ME.wallet} displayValue={ME.wallet.slice(0, 10) + '…' + ME.wallet.slice(-6)} />
+                : <span className="text-xs text-arc-faint">—</span>}
+            </div>
+            <p className="mt-3 text-[11px] leading-relaxed text-arc-faint">
+              {tr('balance.ownWalletNote','your own wallet — funds arrive on-chain automatically')}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-arc-muted">
+              <span className="inline-flex items-center gap-1.5"><Icon name="fuel" size={12} className="text-arc-faint" /> {tr('balance.gasInUsdc','Gas paid in USDC')}</span>
+              <span className="inline-flex items-center gap-1.5"><Icon name="arrow-down-left" size={12} className="text-emerald-400" /> {tr('balance.receiveShare','Receive: share this address')}</span>
+            </div>
           </div>
         </div>
+      </section>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <WalletStat
+          label={tr('balance.totalIn','TOTAL IN')}
+          value={inTotal.toFixed(2)}
+          unit="USDC"
+          icon="arrow-down-left"
+          tone="emerald"
+        />
+        <WalletStat
+          label={tr('balance.totalOut','TOTAL OUT')}
+          value={outTotal.toFixed(2)}
+          unit="USDC"
+          icon="arrow-up-right"
+          tone="rose"
+        />
+        <WalletStat
+          label={tr('balance.activity','ACTIVITY')}
+          value={String(histList.length)}
+          unit={histList.length === 1 ? 'tx' : 'txs'}
+          hint={pendingCount > 0 ? pendingCount + ' ' + tr('balance.pendingLower','pending') : tr('balance.allSettled','all settled')}
+          icon="history"
+          tone={pendingCount > 0 ? 'amber' : 'neutral'}
+        />
+        <WalletStat
+          label={tr('balance.network','NETWORK')}
+          value={chainLabel}
+          unit={chainId}
+          hint={tr('balance.networkHint','settlement in USDC')}
+          icon="globe"
+          tone="neutral"
+        />
       </div>
 
-      {/* Legacy platform-custodial flows (fiat top-up + bank/legacy crypto
-          withdraw): hidden while ONCHAIN_FUNDS. */}
+      {/* ── add funds ────────────────────────────────────────────────── */}
+      <section id="add-funds" className="scroll-mt-4 mb-4">
+        <AddFundsPanel notify={notify} onFunded={() => window.refreshWallet?.()} />
+      </section>
+
+      {/* Legacy platform-custodial withdraw (hidden while ONCHAIN_FUNDS). */}
       {!custodialHidden && (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Withdraw (crypto + legacy bank tabs) */}
-        <Card className="overflow-hidden bg-gradient-to-br from-arc-surface to-arc-surface2/50 transition-all duration-300 hover:shadow-glow hover:-translate-y-0.5">
-          <div className="flex items-center gap-2 px-5 py-3.5 border-b border-arc-border bg-amber-500/5">
-            <Icon name="minus" size={16} className="text-amber-400" />
-            <span className="text-sm font-semibold text-amber-300">{tr('balance.withdrawTitle','Withdraw Balance')}</span>
+        <Card className="overflow-hidden mb-4">
+          <div className="flex items-center gap-2 px-5 py-3.5 border-b border-arc-border">
+            <Icon name="minus" size={15} className="text-arc-faint" />
+            <span className="text-sm font-semibold text-arc-text">{tr('balance.withdrawTitle','Withdraw Balance')}</span>
           </div>
           <div className="p-5">
-            <div className="flex bg-arc-surface/60 ring-1 ring-arc-border rounded-xl p-1 mb-4">
+            <div className="flex bg-arc-bg/50 ring-1 ring-arc-border rounded-xl p-1 mb-4">
               {WITHDRAW_TABS.map(t => (
-                <button key={t.id} onClick={() => setWithdrawTab(t.id)} className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-medium rounded-lg py-2 transition-all duration-200 ${withdrawTab === t.id ? 'bg-amber-600 text-white shadow-glow hover:brightness-110' : 'text-arc-muted hover:text-arc-text hover:-translate-y-0.5'}`}>
+                <button key={t.id} type="button" onClick={() => setWithdrawTab(t.id)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-medium rounded-lg py-2 transition-colors ${withdrawTab === t.id ? 'bg-arc-surface2 text-arc-text ring-1 ring-arc-border' : 'text-arc-muted hover:text-arc-text'}`}>
                   <Icon name={t.icon} size={13} /> {t.label}
                 </button>
               ))}
@@ -773,22 +819,19 @@ function Balance({ usdc, banks, onWithdraw, onAddBank, onWithdrawCrypto, txs, no
 
             {withdrawTab === 'crypto' ? (
               <div className="space-y-4">
-                <div className="rounded-xl ring-1 ring-arc-primary/20 bg-arc-primary/5 p-3 text-[11px] text-arc-muted leading-relaxed">
-                  <Icon name="info" size={12} className="text-arc-accent inline mr-1" />
+                <div className="rounded-xl ring-1 ring-arc-border bg-arc-bg/40 p-3 text-[11px] text-arc-muted leading-relaxed">
+                  <Icon name="info" size={12} className="text-arc-faint inline mr-1" />
                   {tr('balance.cryptoNote','Withdraw on-chain to an Arc address (native USDC). 1 confirmation = final. Destination is checked against the blocklist.')}
                 </div>
                 <div>
-                  <label className="text-sm text-arc-muted">{tr('balance.arcAddress','Arc Address (0x…)')}</label>
-                  <input value={cryptoAddr} onChange={e => setCryptoAddr(e.target.value)} placeholder="0x7A3f9C4e2B81dA56e0F1b9C7Ae44D2c8b6E91f0a" className="mt-2 w-full bg-arc-surface/60 ring-1 ring-arc-border focus:ring-amber-500/50 hover:ring-arc-borderlt rounded-xl px-3.5 h-12 text-sm text-arc-text placeholder-arc-faint outline-none font-mono transition" />
+                  <label className="text-xs text-arc-muted">{tr('balance.arcAddress','Arc Address (0x…)')}</label>
+                  <input value={cryptoAddr} onChange={e => setCryptoAddr(e.target.value)} placeholder="0x7A3f9C4e2B81dA56e0F1b9C7Ae44D2c8b6E91f0a" className="mt-2 w-full bg-arc-bg/50 ring-1 ring-arc-border focus:ring-arc-primary/50 rounded-xl px-3.5 h-12 text-sm text-arc-text placeholder-arc-faint outline-none font-mono transition-colors" />
                 </div>
                 <div>
-                  <label className="text-sm text-arc-muted">{tr('balance.amountUSDC','USDC Amount')}</label>
-                  <input value={cryptoAmt} onChange={e => setCryptoAmt(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="10.00" className="mt-2 w-full bg-arc-surface/60 ring-1 ring-arc-border focus:ring-amber-500/50 hover:ring-arc-borderlt rounded-xl px-3.5 h-12 text-base text-arc-text placeholder-arc-faint outline-none font-mono transition" />
+                  <label className="text-xs text-arc-muted">{tr('balance.amountUSDC','USDC Amount')}</label>
+                  <input value={cryptoAmt} onChange={e => setCryptoAmt(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="10.00" className="mt-2 w-full bg-arc-bg/50 ring-1 ring-arc-border focus:ring-arc-primary/50 rounded-xl px-3.5 h-12 text-base text-arc-text placeholder-arc-faint outline-none font-mono transition-colors" />
                 </div>
-                {/* No fee breakdown: withdrawing your own USDC costs no platform
-                    fee. (this used to show a fabricated 2% fee and a
-                    1.02× "Total Debit" that no backend code ever charged.) */}
-                <Btn variant="outline" size="lg" full icon="arrow-up-from-line" disabled={!cryptoValid} className="transition-all duration-200 hover:scale-[1.02] hover:shadow-glow" onClick={() => onWithdrawCrypto(cryptoAddr, cryptoAmt)}>
+                <Btn variant="outline" size="lg" full icon="arrow-up-from-line" disabled={!cryptoValid} onClick={() => onWithdrawCrypto(cryptoAddr, cryptoAmt)}>
                   {tr('balance.withdrawToArc','Withdraw to Arc Address')}
                 </Btn>
               </div>
@@ -796,21 +839,23 @@ function Balance({ usdc, banks, onWithdraw, onAddBank, onWithdrawCrypto, txs, no
               <div className="space-y-4">
                 <div className="text-[11px] text-arc-faint">{tr('balance.bankLegacyNote','Bank withdrawal (legacy) — use the Crypto tab for faster on-chain withdrawals.')}</div>
                 {banks.length === 0 ? (
-                  <div className="flex flex-col items-center gap-3 py-6 text-center saldo-fade-in">
-                    <div className="w-16 h-16 rounded-2xl bg-arc-surface2/60 ring-1 ring-arc-border flex items-center justify-center transition-transform duration-300 hover:scale-110"><Icon name="credit-card" size={28} className="text-arc-faint" /></div>
+                  <div className="flex flex-col items-center gap-3 py-6 text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-arc-surface2/60 ring-1 ring-arc-border flex items-center justify-center">
+                      <Icon name="credit-card" size={24} className="text-arc-faint" />
+                    </div>
                     <div className="text-sm text-arc-muted">{tr('balance.noBank','No bank account yet')}</div>
-                    <Btn variant="primary" icon="plus" onClick={onAddBank}>{tr('balance.addAccount','Add Account')}</Btn>
+                    <Btn variant="primary" size="sm" icon="plus" onClick={onAddBank}>{tr('balance.addAccount','Add Account')}</Btn>
                   </div>
                 ) : (
                   <div className="space-y-2">
                     {banks.map((b, i) => (
-                      <div key={i} className="flex items-center gap-3 bg-arc-surface/60 ring-1 ring-arc-border rounded-xl px-3.5 py-3 transition-all duration-200 hover:-translate-y-0.5 hover:ring-arc-borderlt">
-                        <Icon name="building-2" size={18} className="text-arc-accent" />
+                      <div key={i} className="flex items-center gap-3 bg-arc-bg/40 ring-1 ring-arc-border rounded-xl px-3.5 py-3">
+                        <Icon name="building-2" size={17} className="text-arc-faint" />
                         <div className="flex-1">
                           <div className="text-sm text-arc-text font-medium">{b.bank}</div>
                           <div className="text-[11px] text-arc-faint font-mono">{b.number} · {b.name}</div>
                         </div>
-                        <Icon name="check-circle" size={16} className="text-emerald-400" />
+                        <Icon name="check-circle" size={15} className="text-emerald-400" />
                       </div>
                     ))}
                     <Btn variant="outline" size="lg" full icon="arrow-up-from-line" onClick={onWithdraw}>{tr('balance.withdrawToBank','Withdraw to Bank')}</Btn>
@@ -820,96 +865,107 @@ function Balance({ usdc, banks, onWithdraw, onAddBank, onWithdrawCrypto, txs, no
             )}
           </div>
         </Card>
-      </div>
       )}
 
-      {/* history — table matching seller center pattern with skeleton rows */}
-      <Card className="mt-5 overflow-hidden bg-gradient-to-br from-arc-surface to-arc-surface2/50 transition-all duration-300 hover:shadow-glow">
-        <div className="flex items-center gap-2 px-5 py-3.5 border-b border-arc-border">
-          <Icon name="history" size={16} className="text-arc-accent" />
-          <span className="text-sm font-semibold text-arc-text">{tr('balance.history','Transaction History')}</span>
-          <span className="ml-auto text-xs text-arc-faint">{histList.length} {histList.length === 1 ? 'transaction' : 'transactions'}</span>
-        </div>
-        <div className="divide-y divide-arc-border/60">
-          {histList.length === 0 ? (
-            <div className="py-16 flex flex-col items-center gap-4 text-center saldo-fade-in">
-              <div className="w-20 h-20 rounded-2xl bg-arc-surface2/60 ring-1 ring-arc-border flex items-center justify-center transition-transform duration-300 hover:scale-110">
-                <Icon name="inbox" size={32} className="text-arc-faint" />
-              </div>
-              <div>
-                <div className="text-base font-semibold text-arc-text">{tr('wallet.noTxs','No transactions yet.')}</div>
-                <div className="text-xs text-arc-faint mt-1">{tr('balance.txEmpty','Recent Transactions will appear here')}</div>
-              </div>
+      {/* ── history + connections ────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <section className="lg:col-span-8">
+          <Card className="overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-3.5 border-b border-arc-border">
+              <Icon name="history" size={15} className="text-arc-faint" />
+              <span className="text-sm font-semibold text-arc-text">{tr('balance.history','Transaction History')}</span>
+              <span className="ml-auto text-[11px] text-arc-faint tabular-nums">{histList.length}</span>
             </div>
-          ) : histList.map(t => {
-            const isIn = t.type === 'in';
-            const statusUpper = (t.status || '').toString().toUpperCase();
-            const badgeColor = statusUpper === 'DONE' ? 'emerald'
-              : statusUpper === 'PENDING' ? 'amber'
-              : statusUpper === 'FAILED' ? 'rose'
-              : statusUpper === 'ESCROWED' ? 'cyan'
-              : null;
-            return (
-              <div key={t.id} className="flex items-center gap-3 px-5 py-3.5 hover:bg-arc-surface2/40 transition-all duration-200 hover-lift-row">
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isIn ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'} transition-transform duration-200 hover:-translate-y-0.5`}>
-                  <Icon name={isIn ? 'arrow-down-left' : 'arrow-up-right'} size={16} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm text-arc-text font-medium leading-tight">{t.label}</div>
-                  <div className="text-[11px] text-arc-faint flex items-center gap-1.5 flex-wrap">
-                    {t.sub} · <span>{t.time}</span>
-                    {t.source === 'circle' && <PixBadge color="blue" className="!text-[7px]">{tr('balance.circle','CIRCLE')}</PixBadge>}
-                    {t.txHash && (
-                      <a href={String(window.ARC_EXPLORER_URL || 'https://arc.etherscan.io').replace(/\/+$/, '') + '/tx/' + t.txHash} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-[10px] font-mono text-arc-accent hover:brightness-125 transition-all duration-200 hover:-translate-y-0.5">
-                        <Icon name="external-link" size={10} /> {t.txHash.slice(0, 6)}…{t.txHash.slice(-4)}
-                      </a>
-                    )}
+            <div className="divide-y divide-arc-border/60">
+              {histList.length === 0 ? (
+                <div className="py-16 flex flex-col items-center gap-3 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-arc-surface2/60 ring-1 ring-arc-border flex items-center justify-center">
+                    <Icon name="inbox" size={24} className="text-arc-faint" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-arc-text">{tr('wallet.noTxs','No transactions yet.')}</div>
+                    <div className="text-[11px] text-arc-faint mt-1">{tr('balance.txEmpty','Recent Transactions will appear here')}</div>
                   </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <div className={`font-mono text-sm tabular-nums ${isIn ? 'text-emerald-400' : 'text-rose-400'} transition-colors duration-200 hover:-translate-y-0.5`}>{isIn ? '+' : '−'}{t.amount.toFixed(2)}</div>
-                  <div className="mt-0.5">{badgeColor ? <PixBadge color={badgeColor}>{statusUpper}</PixBadge> : <span className="text-[10px] text-arc-faint">{t.status}</span>}</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
+              ) : histList.map(t => {
+                const isIn = t.type === 'in';
+                const statusUpper = (t.status || '').toString().toUpperCase();
+                const badgeColor = statusUpper === 'DONE' ? 'emerald'
+                  : statusUpper === 'PENDING' ? 'amber'
+                  : statusUpper === 'FAILED' ? 'rose'
+                  : statusUpper === 'ESCROWED' ? 'cyan'
+                  : 'slate';
+                return (
+                  <div key={t.id} className="flex items-center gap-3 px-5 py-3.5 hover:bg-arc-surface2/30 transition-colors">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isIn ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                      <Icon name={isIn ? 'arrow-down-left' : 'arrow-up-right'} size={15} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-arc-text font-medium leading-tight truncate">{t.label}</div>
+                      <div className="mt-0.5 text-[11px] text-arc-faint flex items-center gap-1.5 flex-wrap">
+                        <span className="truncate max-w-[16rem]">{t.sub}</span>
+                        <span className="text-arc-faint/50">·</span>
+                        <span className="whitespace-nowrap">{t.time}</span>
+                        {t.source === 'circle' && <PixBadge color="blue" className="!text-[7px]">{tr('balance.circle','CIRCLE')}</PixBadge>}
+                        {t.txHash && (
+                          <a href={String(window.ARC_EXPLORER_URL || 'https://arc.etherscan.io').replace(/\/+$/, '') + '/tx/' + t.txHash} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-0.5 font-mono text-[10px] text-arc-accent hover:brightness-125 transition">
+                            <Icon name="external-link" size={10} /> {t.txHash.slice(0, 6)}…{t.txHash.slice(-4)}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className={`font-mono text-sm tabular-nums ${isIn ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {isIn ? '+' : '−'}{Number(t.amount || 0).toFixed(2)}
+                      </div>
+                      <div className="mt-1"><PixBadge color={badgeColor}>{statusUpper || '—'}</PixBadge></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </section>
 
-      {/* External Wallet Section */}
-      <Card className="mt-5 overflow-hidden bg-gradient-to-br from-arc-surface to-arc-surface2/50 transition-all duration-300 hover:shadow-glow hover:-translate-y-0.5">
-        <div className="flex items-center gap-2 px-5 py-3.5 border-b border-arc-border bg-violet-500/5">
-          <Icon name="link" size={16} className="text-violet-400" />
-          <span className="text-sm font-semibold text-violet-300">{tr('balance.extWallets','External Wallets')}</span>
-        </div>
-        <div className="p-5">
-          <div className="text-xs text-arc-faint mb-3">Connect MetaMask, Coinbase Wallet, or other browser wallets to deposit cross-chain USDC</div>
-          <div id="connected-wallets-list" className="space-y-2 mb-3">
+        <aside className="lg:col-span-4 space-y-4">
+          {gwBalance != null && parseFloat(gwBalance) > 0 && (
+            <Card className="p-4">
+              <div className="flex items-center gap-1.5 text-[10px] font-pixel uppercase tracking-[0.18em] text-arc-faint">
+                <Icon name="layers" size={11} /> {tr('af.gwBalance', 'Gateway unified balance')}
+              </div>
+              <div className="mt-2 font-mono text-lg font-semibold text-arc-text" id="gateway-balance-display">{gwBalance} <span className="text-[10px] text-arc-faint">USDC</span></div>
+              <div className="mt-1.5 text-[11px] text-arc-faint leading-relaxed">{tr('af.gwNote', 'Held in Circle Gateway across chains — withdraw from the Circle console or bridge it to Arc.')}</div>
+            </Card>
+          )}
+
+          <Card className="p-4">
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-pixel uppercase tracking-[0.18em] text-arc-faint">
+                <Icon name="link" size={11} /> {tr('balance.extWallets','External Wallets')}
+              </span>
+              {extWallet && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />}
+            </div>
+
             {extWallet ? (
-              <div className="flex items-center gap-2 px-3 py-2 bg-emerald-500/10 rounded-lg ring-1 ring-emerald-500/30 transition-all duration-200 hover:-translate-y-0.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-xs font-mono text-emerald-300">{extWallet.slice(0, 6)}...{extWallet.slice(-4)}</span>
-                <button onClick={() => { window.WalletBridge?.disconnect?.(); setExtWallet(null); notify('Wallet disconnected', 'info'); }} className="ml-auto text-[10px] text-red-400 hover:text-red-300 transition-all duration-200 hover:-translate-y-0.5">{tr('balance.disconnect','Disconnect')}</button>
+              <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/25 px-3 py-2">
+                <span className="text-xs font-mono text-emerald-300">{extWallet.slice(0, 6)}…{extWallet.slice(-4)}</span>
+                <button type="button" onClick={() => { window.WalletBridge?.disconnect?.(); setExtWallet(null); notify('Wallet disconnected', 'info'); }}
+                  className="ml-auto text-[10px] text-arc-faint hover:text-rose-300 transition-colors">{tr('balance.disconnect','Disconnect')}</button>
               </div>
             ) : (
-              <div className="text-xs text-arc-faint italic">{tr('balance.noWallets','No wallets connected')}</div>
+              <>
+                <p className="mt-2 text-[11px] text-arc-faint leading-relaxed">
+                  {tr('balance.extHint','Connect MetaMask, Rabby or Coinbase Wallet to fund this account from another chain.')}
+                </p>
+                <Btn variant="outline" size="sm" full icon="link" className="mt-3" onClick={handleConnectWallet}>{tr('balance.connectWallet','Connect wallet')}</Btn>
+              </>
             )}
-          </div>
-          <Btn variant="primary" icon="link" onClick={extWallet ? undefined : handleConnectWallet} className={`transition-all duration-200 ${extWallet ? 'opacity-50 pointer-events-none' : 'hover:scale-[1.02] hover:shadow-glow'}`}>
-            {extWallet ? 'Wallet Connected' : 'Connect Wallet'}
-          </Btn>
-        </div>
-      </Card>
+          </Card>
 
-      {/* Opsi A (2026-09-27) — "PIN & Security" card REMOVED.
-          Circle auto-provisions the PIN + security questions for authMode EMAIL
-          accounts, and email OTP is our only sign-in, so every account is EMAIL
-          and no user ever chose a PIN. "Change PIN" / "Forgot PIN? Recover" could
-          therefore never succeed. fetchPinStatus/runPinAction/setupPin are kept
-          below for a future PIN-based auth mode. */}
-
-      {/* EOA recovery wallets (email-independence safety net) */}
-      <RecoveryWalletCard notify={notify} />
+          <RecoveryWalletCard notify={notify} />
+        </aside>
+      </div>
 
       {/* .C2: wallet action modal (moved from userdash.jsx) */}
       <WalletActionModal action={walletAction} usdc={usdc} onClose={() => setWalletAction(null)} onConfirm={(msg) => { setWalletAction(null); notify(msg, 'success'); }} notify={notify} />
