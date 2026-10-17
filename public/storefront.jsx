@@ -80,7 +80,10 @@ function Storefront({ onBuy, onProduct, query, cat: catProp, onCatChange }) {
   // landing-page cards can open the storefront already filtered. Internal state
   // is kept as a fallback so the component still works standalone.
   const [internalCat, setInternalCat] = useState('All');
-  const cat = catProp === undefined || catProp === null ? internalCat : catProp;
+  // 'Semua' (Indonesian for "All") can still arrive from an older caller or a
+  // bookmarked URL; treat it as the sentinel, never as a category name.
+  const rawCat = catProp === undefined || catProp === null ? internalCat : catProp;
+  const cat = !rawCat || rawCat === 'Semua' ? 'All' : rawCat;
   const setCat = (c) => {
     setInternalCat(c);
     if (onCatChange) onCatChange(c);
@@ -100,7 +103,33 @@ function Storefront({ onBuy, onProduct, query, cat: catProp, onCatChange }) {
     return () => clearInterval(t);
   }, [retryTick]);
   // C2 — hide sold-out items from Explore (store pages keep them for the Sold-Out tab)
-  const list = (window.PRODUCTS || []).filter(p => p.status !== 'soldout' && (cat === 'All' || p.cat === cat) && (p.title || '').toLowerCase().includes(q.toLowerCase()));
+  //
+  // Search matches the PRODUCT NAME, the CATEGORY, the description and the
+  // SELLER name — not just the title. Searching "rimuru" (a username) used to
+  // return nothing because only `p.title` was checked.
+  const ql = (q || '').trim().toLowerCase();
+  const list = (window.PRODUCTS || []).filter(p => {
+    if (p.status === 'soldout') return false;
+    if (cat !== 'All' && p.cat !== cat) return false;
+    if (!ql) return true;
+    const haystack = [p.title, p.cat, p.desc, p.seller && p.seller.name, p.seller && p.seller.handle]
+      .filter(Boolean).join(' ').toLowerCase();
+    return haystack.includes(ql);
+  });
+
+  // Ask the SERVER too (debounced): the storefront only holds the first page
+  // (24 newest), so a match on page 2+ would never be found by the client
+  // filter alone. The API searches product name + store name + seller username.
+  const firstSearchRun = useRef(true);
+  useEffect(() => {
+    if (firstSearchRun.current) { firstSearchRun.current = false; return; }
+    const qq = (q || '').trim();
+    const catArg = cat !== 'All' ? cat : '';
+    const t = setTimeout(() => {
+      if (window.loadCatalog) window.loadCatalog({ q: qq || undefined, cat: catArg || undefined });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [q, cat]);
   // Referenced so the list re-renders after "Load more" appends to window.PRODUCTS.
   void catalogTick;
   const loading = catalogState === 'loading' || (!window.PRODUCTS && catalogState !== 'error');

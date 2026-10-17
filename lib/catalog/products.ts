@@ -85,14 +85,42 @@ export async function listProducts(args: {
     .order("created_at", { ascending: false })
     .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 
-  // "All" is the storefront's own sentinel (see CATEGORIES in public/data.jsx).
-  // This used to test for "Semua", which no client ever sent — so `?cat=All`
-  // fell through to `category = 'All'` and returned an empty catalog.
-  if (cat && cat !== "All") {
-    query = query.eq("category", cat);
+  // "All" is the storefront's own sentinel (see CATEGORIES in public/data.jsx);
+  // "Semua" is the Indonesian spelling older callers still send. Either one
+  // means "no category filter" — treating it as a category name matches zero
+  // rows, which is what made every topbar search return an empty catalog.
+  const catNorm = (cat ?? "").trim();
+  if (catNorm && !/^(all|semua)$/i.test(catNorm)) {
+    query = query.eq("category", catNorm);
   }
-  if (q) {
-    query = query.ilike("name", `%${q}%`);
+
+  const term = (q ?? "").trim();
+  if (term) {
+    // Search the product name, but ALSO the store name and the seller's
+    // username — buyers search "rimuru" as often as they search a title.
+    // PostgREST cannot OR across a nested embed (stores.users.username), so the
+    // matching sellers/stores are resolved first and then matched by id.
+    const like = `%${term.replace(/[,()%\\]/g, " ")}%`;
+
+    const { data: sellers } = await admin
+      .from("users")
+      .select("id")
+      .or(`username.ilike.${like},name.ilike.${like}`)
+      .limit(50);
+    const sellerIds = (sellers ?? []).map((s) => s.id as string);
+
+    let storeFilter = `name.ilike.${like}`;
+    if (sellerIds.length) storeFilter += `,owner_user_id.in.(${sellerIds.join(",")})`;
+    const { data: stores } = await admin
+      .from("stores")
+      .select("id")
+      .or(storeFilter)
+      .limit(100);
+    const storeIds = (stores ?? []).map((s) => s.id as string);
+
+    let productFilter = `name.ilike.${like}`;
+    if (storeIds.length) productFilter += `,store_id.in.(${storeIds.join(",")})`;
+    query = query.or(productFilter);
   }
 
   const { data, error, count } = await query;

@@ -1089,7 +1089,11 @@ function App() {
     setView('auth');
   };
   const goStorefront = (cat, q) => {
-    setStoreCat(cat || 'All');
+    // 'Semua' is Indonesian for "All" and leaked in from older call sites, but
+    // the storefront compares against the English sentinel. Passing 'Semua' made
+    // `cat === 'All'` false and `p.cat === 'Semua'` false for every product, so
+    // every search from the topbar returned "No matching products".
+    setStoreCat(!cat || cat === 'Semua' ? 'All' : cat);
     setStoreQuery(q || '');
     navTo('storefront');
   };
