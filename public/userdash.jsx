@@ -11,6 +11,36 @@
   document.head.appendChild(s);
 })();
 
+// ── Buying Log helpers ───────────────────────────────────────────────
+// A raw status string ("CANCELLED", "DONE") tells a buyer nothing, and the
+// old row showed only the amount + the raw enum, with no order id, no time,
+// and no way to open the order. These map the enum to a readable pill.
+const UD_STATUS = {
+  PENDING:   { label: 'Pending',   cls: 'bg-amber-500/10 text-amber-300 ring-amber-500/30' },
+  PROCESS:   { label: 'Processing',cls: 'bg-indigo-500/10 text-indigo-300 ring-indigo-500/30' },
+  SENT:      { label: 'Sent',      cls: 'bg-sky-500/10 text-sky-300 ring-sky-500/30' },
+  DONE:      { label: 'Done',      cls: 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/30' },
+  REFUNDED:  { label: 'Refunded',  cls: 'bg-amber-500/10 text-amber-300 ring-amber-500/30' },
+  DISPUTED:  { label: 'Disputed',  cls: 'bg-orange-500/10 text-orange-300 ring-orange-500/30' },
+  DECLINED:  { label: 'Declined',  cls: 'bg-rose-500/10 text-rose-300 ring-rose-500/30' },
+  CANCELLED: { label: 'Cancelled', cls: 'bg-arc-surface2 text-arc-faint ring-arc-border' },
+};
+// 0.05 USDC must not render as "0.05" rounded away or "0.00": keep 2 decimals
+// for normal prices, 4 for sub-cent ones.
+const udFmtUsdc = (n) => {
+  const v = Number(n) || 0;
+  if (v === 0) return '0.00';
+  return v < 0.01 ? v.toFixed(4) : v.toFixed(2);
+};
+const udWhen = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+};
+
 function UserDashboard({ notify, avatarImg, onChangePin, pinChangeBusy }) {
   const avatarRef = useRef(null);
   const pickAvatar = async (file) => {
@@ -54,6 +84,11 @@ function UserDashboard({ notify, avatarImg, onChangePin, pinChangeBusy }) {
   const [saving, setSaving] = useState(false);
   const [buyOrders, setBuyOrders] = useState([]);
   const [buyOrdersLoading, setBuyOrdersLoading] = useState(false);
+  // A failed checkout leaves a CANCELLED order behind, so a buyer who retried a
+  // few times saw a wall of identical "CANCELLED" rows and could not find the
+  // one order that actually went through. Those attempts are hidden by default,
+  // EXCEPT refunds (a refund is stored as CANCELLED too — onChainStatus says so).
+  const [showCancelled, setShowCancelled] = useState(false);
 
   useEffect(() => {
     setBuyOrdersLoading(true);
@@ -91,9 +126,20 @@ function UserDashboard({ notify, avatarImg, onChangePin, pinChangeBusy }) {
 
   const stats = {
     balance: ME.usdc || 0,
-    transactions: buyOrders.length,
+    // Cancelled/declined rows are logged attempts (every failed checkout leaves
+    // one), so counting them made the tile claim 9 "transactions" for a single
+    // real purchase.
+    transactions: buyOrders.filter(o => o.status !== 'CANCELLED' && o.status !== 'DECLINED').length,
     rating: ME.rating || 0
   };
+
+  // Refunds are stored as CANCELLED with on_chain_status = REFUNDED — they must
+  // stay visible even when cancelled attempts are hidden.
+  const isRefunded = (o) => o.onChainStatus === 'REFUNDED';
+  const isDeadAttempt = (o) =>
+    (o.status === 'CANCELLED' || o.status === 'DECLINED') && !isRefunded(o);
+  const cancelledCount = buyOrders.filter(isDeadAttempt).length;
+  const visibleBuys = showCancelled ? buyOrders : buyOrders.filter(o => !isDeadAttempt(o));
 
   return (
     <div className="anim-view">
@@ -233,6 +279,19 @@ function UserDashboard({ notify, avatarImg, onChangePin, pinChangeBusy }) {
             <div className="flex items-center gap-2 px-5 py-3.5 border-b border-arc-border">
               <Icon name="shopping-bag" size={16} className="text-emerald-400" />
               <span className="text-sm font-semibold text-arc-text">{tr('ud.buyingLog','Buying Log')}</span>
+              {!buyOrdersLoading && buyOrders.length > 0 && (
+                <span className="text-[10px] font-pixel text-arc-faint ml-1">
+                  {stats.transactions}/{buyOrders.length} {tr('ud.orders','ORDERS')}
+                </span>
+              )}
+              {cancelledCount > 0 && (
+                <button type="button" onClick={() => setShowCancelled(v => !v)}
+                  className="ml-auto text-[10px] text-arc-faint hover:text-arc-accent transition-colors">
+                  {showCancelled
+                    ? tr('ud.hideCancelled','Hide cancelled')
+                    : tr('ud.showCancelled','Show cancelled') + ' (' + cancelledCount + ')'}
+                </button>
+              )}
             </div>
             <div className="divide-y divide-arc-border/60">
               {buyOrdersLoading ? (
@@ -251,27 +310,65 @@ function UserDashboard({ notify, avatarImg, onChangePin, pinChangeBusy }) {
                     </div>
                   ))}
                 </div>
-              ) : buyOrders.length > 0 ? buyOrders.map(o => (
-                <div key={o.id} className="flex items-center gap-3 px-5 py-3.5 hover:bg-arc-surface2/40 transition-all duration-200 hover-lift-row">
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-emerald-500/15 text-emerald-400 rounded-lg"><Icon name="package" size={16} /></div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm text-arc-text font-medium leading-tight">{o.product_name || 'Product'}</div>
-                    <div className="text-[11px] text-arc-faint">from {(o.store_name || 'Seller').slice(0, 12)} · {o.category || 'General'} · {new Date(o.timestamp || o.created_at || '').toLocaleDateString()}</div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="font-mono text-sm text-emerald-400">{Number(o.amount || 0).toFixed(2)} USDC</div>
-                    <div className="text-[10px] text-arc-faint">{o.status}</div>
-                  </div>
-                </div>
-              )) : (
+              ) : visibleBuys.length > 0 ? visibleBuys.map(o => {
+                const refunded = isRefunded(o);
+                const st = UD_STATUS[refunded ? 'REFUNDED' : o.status] || { label: o.status || '—', cls: 'bg-arc-surface2 text-arc-muted ring-arc-border' };
+                const dead = isDeadAttempt(o);
+                return (
+                  <button key={o.id} type="button"
+                    onClick={() => {
+                      // Same route app.jsx uses (pushTo('orderdetail', …)); the
+                      // popstate event is what makes the SPA re-render.
+                      window.SlimeRouter.pushPath('orderdetail', { id: o.id });
+                      window.dispatchEvent(new PopStateEvent('popstate'));
+                      window.scrollTo && window.scrollTo(0, 0);
+                    }}
+                    className={`w-full text-left flex items-center gap-3 px-5 py-3.5 hover:bg-arc-surface2/40 transition-all duration-200 hover-lift-row ${dead ? 'opacity-55' : ''}`}>
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 rounded-lg ${dead ? 'bg-arc-surface2 text-arc-faint' : 'bg-emerald-500/15 text-emerald-400'}`}>
+                      <Icon name="package" size={16} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-arc-text font-medium leading-tight truncate">{o.product_name || 'Product'}</div>
+                      <div className="text-[11px] text-arc-faint truncate">
+                        {tr('ud.from','from')} {o.store_name || 'Seller'} · {o.category || 'General'}
+                      </div>
+                      <div className="text-[10px] text-arc-faint/80 font-mono truncate">
+                        #{String(o.id || '').slice(0, 8)}
+                        {udWhen(o.timestamp || o.created_at) ? ' · ' + udWhen(o.timestamp || o.created_at) : ''}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className={`font-mono text-sm ${dead ? 'text-arc-muted' : 'text-emerald-400'}`}>
+                        {udFmtUsdc(o.amount)} <span className="text-[10px] text-arc-faint">USDC</span>
+                      </div>
+                      <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-md ring-1 ${st.cls}`}>{st.label}</span>
+                    </div>
+                    <Icon name="chevron-right" size={14} className="text-arc-faint shrink-0" />
+                  </button>
+                );
+              }) : (
                 <div className="py-16 flex flex-col items-center gap-4 text-center ud-fade-in">
                   <div className="w-20 h-20 rounded-2xl bg-arc-surface2/60 ring-1 ring-arc-border flex items-center justify-center transition-transform duration-300 hover:scale-110">
                     <Icon name="shopping-bag" size={32} className="text-arc-faint" />
                   </div>
                   <div>
-                    <div className="text-base font-semibold text-arc-text">{tr('ud.noPurchases','No purchases yet')}</div>
-                    <div className="text-xs text-arc-faint mt-1">{tr('ud.browseHint','Browse the marketplace to find something')}</div>
+                    <div className="text-base font-semibold text-arc-text">
+                      {cancelledCount > 0
+                        ? tr('ud.noCompleted','No completed purchases yet')
+                        : tr('ud.noPurchases','No purchases yet')}
+                    </div>
+                    <div className="text-xs text-arc-faint mt-1">
+                      {cancelledCount > 0
+                        ? cancelledCount + ' ' + tr('ud.cancelledHint','cancelled checkout attempts are hidden')
+                        : tr('ud.browseHint','Browse the marketplace to find something')}
+                    </div>
                   </div>
+                  {cancelledCount > 0 && (
+                    <button type="button" onClick={() => setShowCancelled(true)}
+                      className="text-xs text-arc-accent hover:brightness-125 transition-all">
+                      {tr('ud.showCancelled','Show cancelled') + ' (' + cancelledCount + ')'}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

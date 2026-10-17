@@ -1234,6 +1234,17 @@ function App() {
       const payerAddress = window.WalletBridge?.isConnected?.() ? window.WalletBridge.getAddress() : null;
       if (!payerAddress) { notify('Connect an external wallet first', 'error'); return; }
       try {
+        // .G — put the wallet on the app's chain BEFORE anything else happens.
+        // The bridge also guards every signature/tx, but doing it here means the
+        // buyer gets a network-switch prompt at the moment they press Buy,
+        // instead of a wallet RPC error halfway through checkout. Rabby, for
+        // one, sat on "Arc Testnet" and prepared the approve tx against the
+        // testnet RPC.
+        if (window.WalletBridge?.ensureChain) {
+          const ch = window.WalletBridge.getChain ? window.WalletBridge.getChain() : null;
+          notify(tr('co.switchingChain', 'Switching wallet to') + ' ' + (ch && ch.name ? ch.name : 'Arc') + '...', 'info');
+          await window.WalletBridge.ensureChain();
+        }
         notify('Preparing checkout...', 'info');
         const prepared = await api('/api/orders/checkout/prepare', {
           method: 'POST', body: JSON.stringify({ productId: product.id, variantLabel: variant.label, qty, payment: 'Onchain', payerAddress }),
@@ -1262,6 +1273,11 @@ function App() {
           notify('Permit signature rejected — please try again.', 'error');
         } else if (e.code === 'PERMIT_VERIFY_UNAVAILABLE') {
           notify('Could not verify the permit right now — please retry in a moment.', 'error');
+        } else if (e.code === 4001 || /user rejected|user denied|rejected the request/i.test(msg)) {
+          // Most often the network-switch prompt was dismissed, not the payment.
+          notify(tr('co.walletCancelled', 'Wallet request cancelled — make sure your wallet is on the Arc network, then try again.'), 'error');
+        } else if (/Wallet is (still )?on chain/i.test(msg)) {
+          notify(tr('co.wrongChain', 'Your wallet is on the wrong network. Switch it to Arc and try again.'), 'error');
         } else {
           notify('Checkout failed: ' + msg, 'error');
         }

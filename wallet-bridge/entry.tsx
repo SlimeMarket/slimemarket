@@ -154,11 +154,39 @@ function BridgeInner() {
   // ── Ensure the wallet is on the configured Arc network ──────────────
   // Without this, a wallet sitting on Arc Testnet (or anything else) makes
   // viem call the wrong RPC, which the wallet reports as "User rejected".
+  //
+  // The source of truth is the PROVIDER (`eth_chainId`), not wagmi's cached
+  // state: Rabby stays on "Arc Testnet" and wagmi can still report the chain it
+  // was configured with, so trusting `useChainId()` skipped the switch and the
+  // wallet ended up preparing the tx on testnet.
+  const readProviderChainId = useCallback(async (): Promise<number | null> => {
+    try {
+      const provider: any = await (connector as any)?.getProvider?.();
+      const hex = await provider?.request?.({ method: "eth_chainId" });
+      const id = typeof hex === "string" ? Number.parseInt(hex, 16) : Number(hex);
+      return Number.isFinite(id) ? id : null;
+    } catch {
+      return null;
+    }
+  }, [connector]);
+
   const ensureChain = useCallback(async () => {
-    if (chainId === ARC.id) return;
+    const actual = await readProviderChainId();
+    if (actual === ARC.id) return;
+
+    const addChain = async () => {
+      const provider: any = await (connector as any)?.getProvider?.();
+      if (!provider?.request) {
+        throw new Error(
+          `Wallet does not know ${ARC.name} (${ARC.id}) and cannot add it automatically. ` +
+            `Add it manually — RPC ${ARC.rpcUrl}, chain id ${ARC.id}.`,
+        );
+      }
+      await provider.request({ method: "wallet_addEthereumChain", params: [ADD_CHAIN_PARAMS] });
+    };
+
     try {
       await switchChainAsync({ chainId: ARC.id });
-      return;
     } catch (err) {
       const code = (err as any)?.code ?? (err as any)?.cause?.code;
       const msg = String((err as any)?.shortMessage ?? (err as any)?.message ?? err);
@@ -166,17 +194,26 @@ function BridgeInner() {
       // rejected) must bubble up so the UI can say what actually happened.
       const notAdded = code === 4902 || /unrecognized chain|try adding the chain|not added/i.test(msg);
       if (!notAdded) throw err;
+      await addChain();
+      await switchChainAsync({ chainId: ARC.id });
     }
-    const provider: any = await (connector as any)?.getProvider?.();
-    if (!provider?.request) {
-      throw new Error(
-        `Wallet does not know ${ARC.name} (${ARC.id}) and cannot add it automatically. ` +
-          `Add it manually — RPC ${ARC.rpcUrl}, chain id ${ARC.id}.`,
-      );
+
+    // Verify. Some wallets resolve the switch without changing network, and
+    // then every tx is prepared against the wrong chain's RPC.
+    const after = await readProviderChainId();
+    if (after !== null && after !== ARC.id) {
+      // Last resort: (re)add the chain with the correct RPC — this also
+      // refreshes a stale RPC entry left over from an earlier network config.
+      await addChain();
+      await switchChainAsync({ chainId: ARC.id });
+      const final = await readProviderChainId();
+      if (final !== null && final !== ARC.id) {
+        throw new Error(
+          `Wallet is still on chain ${final} — switch it to ${ARC.name} (${ARC.id}) to continue`,
+        );
+      }
     }
-    await provider.request({ method: "wallet_addEthereumChain", params: [ADD_CHAIN_PARAMS] });
-    await switchChainAsync({ chainId: ARC.id });
-  }, [chainId, connector, switchChainAsync]);
+  }, [readProviderChainId, connector, switchChainAsync]);
 
   // Expose imperative APIs on window globals (consumed by window.WalletBridge)
   useEffect(() => {
@@ -296,6 +333,11 @@ const WalletBridge: WalletBridgeAPI = {
     const wb = (window as any).__wb;
     if (!wb?.signTypedData) throw new Error("Wallet bridge not ready");
     if (!currentAddress) throw new Error("Wallet not connected — call WalletBridge.connect() first");
+    // Switch FIRST, complain second. This used to throw a "switch to Arc"
+    // error, which app.jsx caught as "permit unavailable" and turned into the
+    // approve fallback — so the buyer got a testnet tx attempt instead of a
+    // network switch.
+    await wb.ensureChain();
     if (currentChainId !== null && currentChainId !== ARC.id) {
       throw new Error(`Wallet is on chain ${currentChainId} — switch to ${ARC.name} (${ARC.id}) first`);
     }
@@ -319,7 +361,7 @@ const WalletBridge: WalletBridgeAPI = {
 // Build stamp — lets anyone confirm in the console which bundle the tab is
 // actually running (`window.__SLIME_WB_BUILD`). Without it, a stale cached
 // bundle is indistinguishable from a broken fix.
-(window as any).__SLIME_WB_BUILD = "20261017b";
+(window as any).__SLIME_WB_BUILD = "20261017c";
 
 // ── Mount (wait for DOM ready — script may load in <head>) ──────────
 function mount() {
