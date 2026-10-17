@@ -36,7 +36,7 @@ export async function createTransferChallenge(params: {
   userToken: string;
   /** Fee level for the on-chain tx (default LOW — simple transfer). */
   feeLevel?: "LOW" | "MEDIUM" | "HIGH";
-}): Promise<{ challengeId: string }> {
+}): Promise<{ challengeId: string; transactionId: string | null }> {
   const {
     walletId, destinationAddress, amountDecimal, tokenId, userToken,
     feeLevel = "LOW",
@@ -69,5 +69,10 @@ export async function createTransferChallenge(params: {
       `createTransferChallenge: no challengeId in response: ${JSON.stringify(response.data ?? {}).slice(0, 300)}`,
     );
   }
-  return { challengeId };
+  // The Circle TRANSACTION id (not just the challenge) is what later tells us
+  // whether the transfer actually landed, failed (e.g. INSUFFICIENT_NATIVE_TOKEN)
+  // or is still pending. Without it a failed send is indistinguishable from a
+  // slow one and the row sits PENDING forever.
+  const transactionId = (response.data as { id?: string } | undefined)?.id ?? null;
+  return { challengeId, transactionId };
 }

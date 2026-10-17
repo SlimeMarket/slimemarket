@@ -2,6 +2,8 @@ import { randomUUID } from "crypto";
 import { supabaseAdminClient } from "@/lib/supabase/admin-client";
 import { arcPublicClient } from "@/lib/arc";
 import { resolveUsdcTokenIds } from "@/lib/circle/usdc-token";
+import { explainCircleError, isCircleFailure, waitForCircleTx } from "@/lib/circle/tx-state";
+import { gasReserveMicro } from "@/lib/wallet/gas";
 import type { CurrentUser } from "@/lib/auth-ucw";
 import { parseUsdc, formatUsdc } from "@/lib/money";
 import { validateArcAddress } from "@/lib/arc";
@@ -62,10 +64,37 @@ export async function preflightCryptoWithdraw(args: {
 
   const { data: wallet, error: wErr } = await admin
     .from("wallets")
-    .select("id")
+    .select("id, address")
     .eq("user_id", user.id)
     .maybeSingle();
   if (wErr || !wallet) throw new Error("wallet not found for user");
+
+  // Arc pays gas in USDC out of the SAME balance, so a send that leaves too
+  // little behind passes validation and then fails inside Circle AFTER the user
+  // has approved it with their PIN (INSUFFICIENT_NATIVE_TOKEN). Catch it here,
+  // before anything is signed.
+  if (wallet.address) {
+    try {
+      const client = arcPublicClient();
+      const [balanceWei, gasPrice] = await Promise.all([
+        client.getBalance({ address: wallet.address as Hex }),
+        client.getGasPrice(),
+      ]);
+      const balanceMicro = balanceWei / 10n ** 12n;
+      const reserve = gasReserveMicro(gasPrice);
+      if (amountMicro + reserve > balanceMicro) {
+        throw new Error(
+          `Not enough USDC for this amount plus the network fee — leave at least ${formatUsdc(reserve)} USDC for gas`,
+        );
+      }
+    } catch (e) {
+      // Only the explicit shortfall above should block. A flaky balance read
+      // must not: Circle stays the authority, and settle() now reports a real
+      // failure instead of leaving the row pending.
+      if (e instanceof Error && /^Not enough USDC/.test(e.message)) throw e;
+      console.warn("[preflight] balance check skipped:", e instanceof Error ? e.message : e);
+    }
+  }
 
   return { dest, amountMicro, walletId: wallet.id };
 }
@@ -99,6 +128,7 @@ export async function initiateUcwSendChallenge(args: {
   const amountDecimal = formatUsdc(amountMicro);
 
   let challengeId = "";
+  let circleTxId: string | null = null;
   let lastErr: unknown = null;
   for (const tokenId of tokenIds) {
     try {
@@ -110,6 +140,7 @@ export async function initiateUcwSendChallenge(args: {
         userToken,
       });
       challengeId = res.challengeId;
+      circleTxId = res.transactionId;
       lastErr = null;
       break;
     } catch (e) {
@@ -147,9 +178,10 @@ export async function initiateUcwSendChallenge(args: {
       // up a challenge id as a transaction).
       method: "onchain-ucw",
       idempotency_key: randomUUID(),
-      // The challenge id is the only Circle-side handle we have before the user
-      // approves, so record it for tracing (ops can look it up in the console).
-      circle_tx_id: challengeId,
+      // Store the Circle TRANSACTION id (falling back to the challenge id): the
+      // transaction id is what lets us ask Circle whether the transfer actually
+      // landed or failed, both at settle time and from the reconciler.
+      circle_tx_id: circleTxId || challengeId,
     })
     .select("id")
     .single();
@@ -188,7 +220,7 @@ export async function settleUcwSend(args: {
 
   const { data: txRow } = await admin
     .from("wallet_txs")
-    .select("id, wallet_id, amount, status")
+    .select("id, wallet_id, amount, status, circle_tx_id")
     .eq("id", walletTxId)
     .maybeSingle();
   if (!txRow) return { ok: false, status: "failed", arcTxHash: null, error: "wallet_tx not found" };
@@ -216,35 +248,54 @@ export async function settleUcwSend(args: {
     return { ok: false, status: "cancelled", arcTxHash: null };
   }
 
-  if (!txHash) {
-    // NO txHash from the challenge result. This is the NORMAL case, not an
-    // error: Circle's challenge result does not carry a txHash, so the browser
-    // cannot know it even when the transfer landed on-chain. The old code
-    // marked the row `failed` here, which recorded a false FAILED entry in the
-    // user's history for a transfer that actually succeeded — and then nothing
-    // ever repaired it. Leave it PENDING; the webhook (and the stale-send
-    // reconciler) settles it from the authoritative Circle side.
+  // Resolve the outcome from Circle when the browser could not supply a hash.
+  // Circle's challenge result never carries one, so a FAILED transfer (the
+  // common case on Arc: INSUFFICIENT_NATIVE_TOKEN, since USDC is the gas token)
+  // used to look identical to a slow one and the row sat PENDING forever.
+  let resolvedHash: string | null = txHash ?? null;
+  if (!resolvedHash && txRow.circle_tx_id) {
+    const state = await waitForCircleTx(txRow.circle_tx_id);
+    if (state) {
+      if (isCircleFailure(state.state)) {
+        console.warn(
+          `[ucw-send] Circle tx ${txRow.circle_tx_id} ${state.state}: ${state.errorReason ?? "no reason"}`,
+        );
+        await admin.from("wallet_txs").update({ status: "failed" }).eq("id", walletTxId);
+        return {
+          ok: false,
+          status: "failed",
+          arcTxHash: null,
+          error: explainCircleError(state.errorReason),
+        };
+      }
+      if (state.state === "COMPLETE" && state.txHash) resolvedHash = state.txHash;
+    }
+  }
+
+  if (!resolvedHash) {
+    // Still in flight (or Circle unreachable). Stay PENDING; the reconciler and
+    // the webhook settle it from the authoritative side.
     return { ok: true, status: "pending", arcTxHash: null };
   }
 
   // Verify on-chain: receipt must exist, be successful, and originate from
   // the user's own wallet address.
   try {
-    const receipt = await arcPublicClient().getTransactionReceipt({ hash: txHash as Hex });
+    const receipt = await arcPublicClient().getTransactionReceipt({ hash: resolvedHash as Hex });
     if (!receipt || receipt.status !== "success") {
       await admin.from("wallet_txs").update({ status: "failed" }).eq("id", walletTxId);
-      return { ok: false, status: "failed", arcTxHash: txHash, error: "on-chain transfer not successful" };
+      return { ok: false, status: "failed", arcTxHash: resolvedHash, error: "on-chain transfer not successful" };
     }
     const from = (receipt.from || "").toLowerCase();
     const own = (wallet.address || "").toLowerCase();
     if (own && from !== own) {
       await admin.from("wallet_txs").update({ status: "failed" }).eq("id", walletTxId);
-      return { ok: false, status: "failed", arcTxHash: txHash, error: "tx did not originate from your wallet" };
+      return { ok: false, status: "failed", arcTxHash: resolvedHash, error: "tx did not originate from your wallet" };
     }
   } catch (e) {
     // RPC unavailable or unknown hash — leave pending; reconcile job retries.
     console.error("[ucw-send] receipt verification failed:", e);
-    return { ok: false, status: "failed", arcTxHash: txHash, error: "could not verify on-chain tx (will reconcile)" };
+    return { ok: false, status: "failed", arcTxHash: resolvedHash, error: "could not verify on-chain tx (will reconcile)" };
   }
 
   // On-chain success confirmed. Best-effort ledger mirror debit: in custodial
@@ -268,8 +319,8 @@ export async function settleUcwSend(args: {
   // where the mirror debit was skipped/failed above).
   await admin
     .from("wallet_txs")
-    .update({ status: "done", arc_tx_hash: txHash })
+    .update({ status: "done", arc_tx_hash: resolvedHash })
     .eq("id", walletTxId);
 
-  return { ok: true, status: "done", arcTxHash: txHash };
+  return { ok: true, status: "done", arcTxHash: resolvedHash };
 }

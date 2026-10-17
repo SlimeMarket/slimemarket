@@ -1017,14 +1017,23 @@ function WalletActionModal({ action, usdc, onClose, onConfirm, notify }) {
   // the fee is a slice of the user's own balance — show the real number, not a
   // hardcoded guess that was ~16x off.
   const [gasFee, setGasFee] = useState(null);
+  // Amount that must stay in the wallet to pay the fee. The displayed estimate
+  // is NOT enough: Circle wraps the transfer and bumps the max fee, and sending
+  // "balance - estimate" failed on-chain with INSUFFICIENT_NATIVE_TOKEN after
+  // the user had already approved it with their PIN.
+  const [gasReserve, setGasReserve] = useState(null);
   useEffect(() => { setAmount(''); setSendAddress(''); setChain('Ethereum'); setLoading(false); }, [action]);
   useEffect(() => {
     if (action !== 'send') return;
     let alive = true;
     fetch((window.SLIME_API || '') + '/api/wallet/gas-estimate', { credentials: 'include' })
       .then(r => r.json())
-      .then(d => { if (alive) setGasFee(d.estimatedFeeUsdc || null); })
-      .catch(() => { if (alive) setGasFee('0.0006'); });
+      .then(d => {
+        if (!alive) return;
+        setGasFee(d.estimatedFeeUsdc || null);
+        setGasReserve(d.reserveUsdc || d.estimatedFeeUsdc || null);
+      })
+      .catch(() => { if (alive) { setGasFee('0.0006'); setGasReserve('0.003'); } });
     return () => { alive = false; };
   }, [action]);
   if (!action) return null;
@@ -1065,8 +1074,16 @@ function WalletActionModal({ action, usdc, onClose, onConfirm, notify }) {
           const st = await fetch(API + '/api/wallet/withdraw/ucw-settle', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ walletTxId: d.walletTxId, txHash: exec?.txHash ?? undefined }) });
           const sd = await st.json().catch(() => ({}));
           if (!st.ok) throw new Error(sd.error || 'Settlement failed');
+          // The server now asks Circle for the real outcome. Never print "Sent"
+          // for a transfer that is merely submitted — that is how a failed send
+          // used to look successful while the row sat PENDING forever.
+          if (sd.status === 'failed') throw new Error(sd.error || 'Transfer failed');
           const hash = (sd.arcTxHash || exec.txHash || '').slice(0, 18);
-          notify && notify(tr('ud.sent','Sent') + ' ' + amount + ' USDC' + (hash ? ' · Tx: ' + hash + '…' : ''), 'success');
+          if (sd.status === 'pending') {
+            notify && notify(tr('ud.sendPending','Submitted — waiting for on-chain confirmation. This updates automatically.'), 'info');
+          } else {
+            notify && notify(tr('ud.sent','Sent') + ' ' + amount + ' USDC' + (hash ? ' · Tx: ' + hash + '…' : ''), 'success');
+          }
           onConfirm(tr('ud.sent','Sent') + ' ' + amount + ' USDC to ' + sendAddress.slice(0, 6) + '...' + sendAddress.slice(-4));
           if (window.refreshWallet) await window.refreshWallet();
           setLoading(false);
@@ -1145,11 +1162,10 @@ function WalletActionModal({ action, usdc, onClose, onConfirm, notify }) {
                     onClick={() => {
                       // USDC IS the gas token on Arc, so sending the full balance
                       // leaves nothing to pay the fee and the transfer reverts.
-                      // Reserve the live gas estimate first — same pattern as
-                      // non-custodial wallets. 6 decimals == micro-USDC, which is
-                      // exactly what the API parses.
-                      const fee = Number(gasFee) || 0;
-                      const max = Math.max(0, usdc - fee);
+                      // Reserve the PESSIMISTIC buffer from the server (not the
+                      // display estimate) — see lib/wallet/gas.ts.
+                      const reserve = Number(gasReserve ?? gasFee) || 0;
+                      const max = Math.max(0, usdc - reserve);
                       setAmount(max > 0 ? max.toFixed(6) : '');
                     }}
                     className="text-[11px] font-semibold text-arc-accent hover:text-arc-text px-2 py-0.5 rounded ring-1 ring-arc-border hover:ring-arc-borderlt transition disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1162,8 +1178,13 @@ function WalletActionModal({ action, usdc, onClose, onConfirm, notify }) {
               <div className="rounded-xl bg-gradient-to-br from-arc-bg/50 to-arc-surface2/30 ring-1 ring-arc-border px-3.5 py-3 space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-arc-muted">{tr('ud.currentBalance','Current Balance')}</span><span className="font-mono tabular-nums text-arc-text">{usdc.toFixed(5)} <span className="text-emerald-400/70 ml-1 text-[0.7em]">USDC</span></span></div>
                 <div className="flex justify-between"><span className="text-arc-muted">{tr('ud.networkFee','Network Fee')}</span><span className="font-mono tabular-nums text-arc-text">~${gasFee !== null ? gasFee : '…'}</span></div>
+                {parseFloat(amount) > 0 && gasReserve !== null && (usdc - parseFloat(amount)) < Number(gasReserve) && (
+                  <div className="text-[11px] text-amber-300 leading-snug">
+                    {tr('ud.leaveForGas','Leave at least')} {gasReserve} USDC {tr('ud.forNetworkFee','in the wallet for the network fee, or the transfer will fail.')}
+                  </div>
+                )}
               </div>
-              <Btn variant="primary" full icon="arrow-up-from-line" disabled={!(parseFloat(amount) > 0) || !sendAddress} onClick={handleSend} loading={loading} className="transition-all duration-200 hover:scale-[1.02] hover:shadow-glow">{tr('ud.sendUsdc','Send USDC')}</Btn>
+              <Btn variant="primary" full icon="arrow-up-from-line" disabled={!(parseFloat(amount) > 0) || !sendAddress || (gasReserve !== null && usdc - parseFloat(amount) < Number(gasReserve))} onClick={handleSend} loading={loading} className="transition-all duration-200 hover:scale-[1.02] hover:shadow-glow">{tr('ud.sendUsdc','Send USDC')}</Btn>
             </>
           )}
 

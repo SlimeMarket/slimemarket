@@ -1,6 +1,7 @@
 import { supabaseAdminClient } from "@/lib/supabase/admin-client";
 import { circleDeveloperSdk } from "@/lib/circle/client";
 import { createMmAuditLog } from "@/lib/mm";
+import { fetchCircleTransaction, isCircleFailure } from "@/lib/circle/tx-state";
 
 const PLATFORM_WALLET_ID = process.env.PLATFORM_CIRCLE_WALLET_ID ?? "";
 const RECONCILE_LOOKBACK_MINUTES = 60 * 24; // scan wallet_txs created in the last 24h
@@ -134,6 +135,8 @@ const STALE_UCW_LIMIT = 50;
 export interface StaleUcwResult {
   scanned: number;
   flagged: number;
+  /** Rows whose real outcome was found on Circle and written back. */
+  resolved?: number;
 }
 
 /**
@@ -176,8 +179,30 @@ export async function reconcileStaleUcwSends(): Promise<StaleUcwResult> {
 
   const scanned = rows?.length ?? 0;
   let flagged = 0;
+  let resolved = 0;
 
   for (const r of (rows ?? []) as WalletTxRow[]) {
+    // Ask Circle FIRST. A row can be stuck because the transfer FAILED
+    // (INSUFFICIENT_NATIVE_TOKEN is the usual one on Arc) or because it landed
+    // and the browser never told us. Flagging those for ops is noise; only rows
+    // Circle knows nothing about need a human.
+    const state = r.circle_tx_id ? await fetchCircleTransaction(r.circle_tx_id) : null;
+    if (state && isCircleFailure(state.state)) {
+      await admin.from("wallet_txs").update({ status: "failed" }).eq("id", r.id);
+      console.warn(`reconcileStaleUcwSends: ${r.id} → failed (${state.errorReason ?? state.state})`);
+      resolved++;
+      continue;
+    }
+    if (state && state.state === "COMPLETE" && state.txHash) {
+      await admin
+        .from("wallet_txs")
+        .update({ status: "done", arc_tx_hash: state.txHash })
+        .eq("id", r.id);
+      console.warn(`reconcileStaleUcwSends: ${r.id} → done (${state.txHash.slice(0, 12)}…)`);
+      resolved++;
+      continue;
+    }
+
     await createMmAuditLog({
       mmUserId: null,
       mmWalletId: PLATFORM_WALLET_ID,
@@ -201,5 +226,5 @@ export async function reconcileStaleUcwSends(): Promise<StaleUcwResult> {
     console.warn(`reconcileStaleUcwSends: ${flagged} stale UCW send(s) flagged for ops`);
   }
 
-  return { scanned, flagged };
+  return { scanned, flagged, resolved };
 }
