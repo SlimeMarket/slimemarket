@@ -41,7 +41,12 @@ const nextConfig: NextConfig = {
               // Without these in frame-src the iframe is blocked and fails
               // silently (no console error the user would notice).
               "frame-src https://challenges.circle.com https://*.circle.com https://onramp.arc.io https://onramp-sandbox.arc.io https://*.arc.io",
-              "connect-src 'self' https://*.circle.com https://api.arc.io https://*.arc.io wss: https://rpc.testnet.arc.network https://cca-lite.coinbase.com",
+              // RPC hosts: the browser wallet bridge talks to the SAME chain as
+              // the server (selected by ARC_CHAIN_ID via /config.js). Both the
+              // mainnet and testnet RPC hosts must be allowed here, otherwise a
+              // network switch turns into an opaque "Failed to fetch" inside
+              // the wallet instead of a real error.
+              "connect-src 'self' https://*.circle.com https://api.arc.io https://*.arc.io wss: https://rpc.mainnet.arc.io https://rpc.testnet.arc.io https://rpc.testnet.arc.network https://cca-lite.coinbase.com",
               "font-src 'self' data: https://fonts.gstatic.com",
               "object-src 'none'",
               "base-uri 'self'",

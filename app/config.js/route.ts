@@ -13,6 +13,7 @@
  * Served with no-store: config must reflect the current deployment env.
  */
 import { onrampWidgetBaseUrl, appKitEnv } from "@/lib/circle/app-kit";
+import { ARC_CHAIN_ID, ARC_EXPLORER_URL, ARC_RPC_URL, ARC_USDC_CONTRACT, IS_ARC_MAINNET } from "@/lib/arc";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,21 @@ export async function GET() {
     // APP_KIT_ENV alone decides sandbox vs production on both sides.
     appKitWidgetUrl: onrampWidgetBaseUrl(),
     appKitEnv: appKitEnv(),
+    // Chain the browser wallet must be on (wallet-bridge reads this).
+    // The bridge bundle is a STATIC file under public/, so it cannot read
+    // process.env — it used to hardcode Arc Testnet (5042002) + the
+    // rpc.testnet.arc.network host, which is dead. That made every
+    // external-wallet checkout fail with "User rejected the request" while
+    // the server was already on mainnet. Serving the chain here keeps the
+    // browser and server on the same network with no rebuild.
+    chain: {
+      id: ARC_CHAIN_ID,
+      name: IS_ARC_MAINNET ? "Arc" : "Arc Testnet",
+      rpcUrl: ARC_RPC_URL,
+      explorerUrl: ARC_EXPLORER_URL,
+      nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 6 },
+    },
+    usdcAddress: ARC_USDC_CONTRACT,
   };
   // JSON inside a JS wrapper (not a bare object literal) so the values are
   // valid JS regardless of what env strings contain.

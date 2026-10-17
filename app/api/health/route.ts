@@ -1,11 +1,21 @@
 import { jsonOk, jsonError } from "@/lib/utils";
 import { isContractReady } from "@/lib/contracts/escrow-client";
-import { ARC_USDC_CONTRACT, ARC_EXPLORER_URL, arcPublicClient } from "@/lib/arc";
+import {
+  ARC_CHAIN_ID,
+  ARC_EXPLORER_URL,
+  ARC_RPC_URL,
+  ARC_USDC_CONTRACT,
+  IS_ARC_MAINNET,
+  arcPublicClient,
+} from "@/lib/arc";
 import { supabaseAdminClient } from "@/lib/supabase/admin-client";
 
 export const dynamic = "force-dynamic";
 
-const RPC_URL = process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.network";
+// RPC/chain come from lib/arc (env-driven). The old fallback here was the
+// retired rpc.testnet.arc.network host, so an env-less deploy reported the
+// wrong network — and the frontend trusts this endpoint for chain metadata.
+const RPC_URL = ARC_RPC_URL;
 const ESCROW_ADDR = process.env.ESCROW_CONTRACT_ADDRESS ?? "";
 
 async function checkDb() {
@@ -197,8 +207,8 @@ export async function GET() {
     name: "SlimeMarket API",
     status: allOk ? "ok" : "degraded",
     version: "0.1.0",
-    chain: (process.env.ARC_CHAIN_ID || "5042002") === "5042" ? "arc-mainnet" : "arc-testnet",
-    chainId: Number(process.env.ARC_CHAIN_ID || 5042002),
+    chain: IS_ARC_MAINNET ? "arc-mainnet" : "arc-testnet",
+    chainId: ARC_CHAIN_ID,
     onChainFunds: process.env.ONCHAIN_WALLET_FUNDS === "1",
     // .D3 — FE needs these to build EOA WalletBridge calldata
     // (approve + depositEscrowCollateral) without a second round-trip.
