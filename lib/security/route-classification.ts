@@ -41,6 +41,11 @@ export const PUBLIC_API_PREFIXES = [
   "/api/auth/dev-login",
   "/api/health",
   "/api/products",
+  // Public search: products + sellers, and (for the caller only) an order by id.
+  // Logged-out visitors must be able to search the catalog; the order lookup is
+  // scoped to the session inside the route, so no one can read someone else's
+  // order through it.
+  "/api/search",
   "/api/stores",
   // The landing page renders a "recent sales" ticker and calls this on every
   // load, including for logged-out visitors. It was missing here, so the request

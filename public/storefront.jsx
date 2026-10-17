@@ -107,8 +107,31 @@ function Storefront({ onBuy, onProduct, query, cat: catProp, onCatChange }) {
   // Search matches the PRODUCT NAME, the CATEGORY, the description and the
   // SELLER name — not just the title. Searching "rimuru" (a username) used to
   // return nothing because only `p.title` was checked.
-  const ql = (q || '').trim().toLowerCase();
-  const list = (window.PRODUCTS || []).filter(p => {
+  const qqNow = (q || '').trim();
+  const ql = qqNow.toLowerCase();
+
+  // One debounced call to /api/search covers all three things the topbar
+  // promises: products, sellers, and an order (by id or short id). The client
+  // filter below still runs instantly over whatever is loaded, so typing never
+  // feels laggy.
+  const [remote, setRemote] = useState(null);
+  useEffect(() => {
+    if (!qqNow) { setRemote(null); return; }
+    let alive = true;
+    const catArg = cat !== 'All' ? '&cat=' + encodeURIComponent(cat) : '';
+    const t = setTimeout(() => {
+      fetch((window.SLIME_API || '') + '/api/search?q=' + encodeURIComponent(qqNow) + catArg, { credentials: 'include' })
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => { if (alive && d) setRemote({ q: qqNow, cat, ...d }); })
+        .catch(() => { /* keep the client-side results */ });
+    }, 300);
+    return () => { alive = false; clearTimeout(t); };
+  }, [qqNow, cat]);
+
+  const remoteFresh = !!(remote && remote.q === qqNow && remote.cat === cat);
+  const source = remoteFresh && Array.isArray(remote.products) ? remote.products : (window.PRODUCTS || []);
+
+  const list = source.filter(p => {
     if (p.status === 'soldout') return false;
     if (cat !== 'All' && p.cat !== cat) return false;
     if (!ql) return true;
@@ -117,19 +140,8 @@ function Storefront({ onBuy, onProduct, query, cat: catProp, onCatChange }) {
     return haystack.includes(ql);
   });
 
-  // Ask the SERVER too (debounced): the storefront only holds the first page
-  // (24 newest), so a match on page 2+ would never be found by the client
-  // filter alone. The API searches product name + store name + seller username.
-  const firstSearchRun = useRef(true);
-  useEffect(() => {
-    if (firstSearchRun.current) { firstSearchRun.current = false; return; }
-    const qq = (q || '').trim();
-    const catArg = cat !== 'All' ? cat : '';
-    const t = setTimeout(() => {
-      if (window.loadCatalog) window.loadCatalog({ q: qq || undefined, cat: catArg || undefined });
-    }, 350);
-    return () => clearTimeout(t);
-  }, [q, cat]);
+  const matchedStores = remoteFresh && Array.isArray(remote.stores) ? remote.stores : [];
+  const matchedOrder = remoteFresh ? remote.order : null;
   // Referenced so the list re-renders after "Load more" appends to window.PRODUCTS.
   void catalogTick;
   const loading = catalogState === 'loading' || (!window.PRODUCTS && catalogState !== 'error');
@@ -222,7 +234,65 @@ function Storefront({ onBuy, onProduct, query, cat: catProp, onCatChange }) {
           </button>
         </div>
       )}
-      {!loading && catalogState !== 'error' && (
+      {/* Non-product search results: an order you own, and matching sellers.
+          The topbar placeholder promises "products, sellers, order ID" — these
+          two blocks are the other two thirds of that promise. */}
+      {!loading && matchedOrder && (
+        <div className="mb-6">
+          <div className="text-[11px] font-pixel uppercase tracking-widest text-arc-faint mb-2">{tr('sf.orderResult','ORDER')}</div>
+          <button type="button"
+            onClick={() => {
+              window.SlimeRouter.pushPath('orderdetail', { id: matchedOrder.id });
+              window.dispatchEvent(new PopStateEvent('popstate'));
+              window.scrollTo && window.scrollTo(0, 0);
+            }}
+            className="w-full text-left flex items-center gap-3 rounded-2xl bg-arc-surface ring-1 ring-arc-border hover:ring-arc-primary/40 px-4 py-3 transition-all duration-200 hover:-translate-y-0.5">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0">
+              <Icon name="receipt" size={16} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium text-arc-text truncate">{matchedOrder.productName}</div>
+              <div className="text-[11px] text-arc-faint font-mono truncate">
+                #{String(matchedOrder.id).slice(0, 8)} · {matchedOrder.role === 'buyer' ? tr('sf.youBought','you bought this') : tr('sf.youSold','you sold this')}
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="font-mono text-sm text-arc-text">{Number(matchedOrder.amount || 0).toFixed(2)} <span className="text-[10px] text-arc-faint">USDC</span></div>
+              <div className="text-[10px] text-arc-faint">{matchedOrder.status}</div>
+            </div>
+            <Icon name="chevron-right" size={14} className="text-arc-faint shrink-0" />
+          </button>
+        </div>
+      )}
+      {!loading && matchedStores.length > 0 && (
+        <div className="mb-6">
+          <div className="text-[11px] font-pixel uppercase tracking-widest text-arc-faint mb-2">{tr('sf.sellers','SELLERS')}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {matchedStores.map(s => (
+              <button key={s.uid || s.handle || s.name} type="button"
+                onClick={() => {
+                  window.SlimeRouter.pushPath('store', { handle: s.uid || s.handle || s.name });
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                  window.scrollTo && window.scrollTo(0, 0);
+                }}
+                className="text-left flex items-center gap-2.5 rounded-2xl bg-arc-surface ring-1 ring-arc-border hover:ring-arc-primary/40 px-3.5 py-3 transition-all duration-200 hover:-translate-y-0.5">
+                <Avatar gradient={isImgUrl(s.avatar) ? '' : (s.avatar || 'from-slate-600 to-slate-800')} img={isImgUrl(s.avatar) ? s.avatar : null} name={s.name} size={30} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-arc-text truncate">{s.name}</div>
+                  <div className="text-[11px] text-arc-faint flex items-center gap-1">
+                    <Icon name="star" size={10} className="fill-amber-400 text-amber-400" stroke={0} />
+                    {Number(s.rating || 0).toFixed(1)}
+                    <span className="text-arc-faint/60">·</span>
+                    {s.productCount} {tr('sf.productsLower','products')}
+                  </div>
+                </div>
+                <Icon name="chevron-right" size={14} className="text-arc-faint shrink-0" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {!loading && catalogState !== 'error' && list.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {list.map((p, i) => <ProductCard key={p.id} product={p} index={i} onBuy={onBuy} onOpen={onProduct ? () => onProduct(p) : undefined} />)}
         </div>
@@ -249,8 +319,8 @@ function Storefront({ onBuy, onProduct, query, cat: catProp, onCatChange }) {
           </div>
         </div>
       )}
-      {/* empty state — no matching products (catalog loaded but filter yielded nothing) */}
-      {!loading && catalogState !== 'error' && list.length === 0 && (
+      {/* empty state — nothing matched, and not because a seller/order did */}
+      {!loading && catalogState !== 'error' && list.length === 0 && matchedStores.length === 0 && !matchedOrder && (
         <div className="flex flex-col items-center justify-center py-20 gap-4 text-center sf-fade-in">
           <div className="w-20 h-20 rounded-2xl bg-arc-surface2/60 ring-1 ring-arc-border flex items-center justify-center transition-transform duration-300 hover:scale-110">
             <Icon name="search-x" size={32} className="text-arc-faint" />
