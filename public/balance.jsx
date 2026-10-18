@@ -33,14 +33,6 @@ const WITHDRAW_TABS = [
 // Transfer — Avalanche, Polygon PoS, Sei, XDC and their testnets. Asking for FAST
 // on those fails with `PRE_FINALITY_UNAVAILABLE` (HTTP 422), so they are flagged
 // here and the bridge call downgrades to SLOW instead of erroring.
-const BRIDGE_SOURCE_CHAINS = [
-  { id: 'Base_Sepolia', label: 'Base Sepolia' },
-  { id: 'Avalanche_Fuji', label: 'Avalanche Fuji', standardOnly: true },
-  { id: 'Ethereum_Sepolia', label: 'Ethereum Sepolia' },
-  { id: 'Arbitrum_Sepolia', label: 'Arbitrum Sepolia' },
-  { id: 'Optimism_Sepolia', label: 'OP Sepolia' },
-  { id: 'Polygon_Amoy_Testnet', label: 'Polygon Amoy', standardOnly: true },
-];
 const ADD_FUNDS_TABS = [
   { id: 'card', label: tr('af.tabCard', 'Buy with card/bank'), icon: 'credit-card' },
   { id: 'bridge', label: tr('af.tabBridge', 'Bridge'), icon: 'arrow-left-right' },
@@ -51,12 +43,7 @@ function AddFundsPanel({ notify, onFunded }) {
   const [tab, setTab] = useState('card');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const [widgetMounted, setWidgetMounted] = useState(false);
 
-  // bridge
-  const [fromChain, setFromChain] = useState('Base_Sepolia');
-  const [amount, setAmount] = useState('');
-  // swap
   const [swapTokenIn, setSwapTokenIn] = useState('USDC');
   const [swapTokenOut, setSwapTokenOut] = useState('EURC');
   const [swapAmount, setSwapAmount] = useState('');
@@ -66,65 +53,21 @@ function AddFundsPanel({ notify, onFunded }) {
   const destAddress = ME.wallet || null;
   // App Kit's bridge is EIP-1193 only. Without a provider the only way a user
   // can move USDC from another chain is the PIN-signed CCTP path below.
-  const hasExternalWallet = typeof window !== 'undefined' && !!window.ethereum;
-
-  const openWidget = async () => {
-    setErr('');
-    if (!window.AppKitHelper) { setErr('App Kit helper not loaded — reload the page.'); return; }
-    setBusy(true);
+  // Bridge is external-wallet first: nothing moves until a wallet is connected.
+  const [extAddr, setExtAddr] = useState(window.WalletBridge?.getAddress?.() || null);
+  const isMainnet = String(window.SLIME_CONFIG?.chain?.id ?? '') === '5042';
+  const connectExternal = async () => {
+    setErr(''); setBusy(true);
     try {
-      // Render the container first; AppKitHelper waits for it to exist and have
-      // a non-zero height before mounting (the iframe fills its container).
-      setWidgetMounted(true);
-      const res = await window.AppKitHelper.mountOnramp({
-        containerId: 'onramp-root',
-        onReady: () => setBusy(false),
-        onSettled: () => {
-          notify && notify(tr('af.settled', 'USDC received — it arrives in your wallet on Arc.'), 'success');
-          onFunded && onFunded();
-        },
-        onNotCompleted: (code) => {
-          notify && notify(tr('af.notCompleted', 'Purchase not completed') + (code ? ' (' + code + ')' : ''), 'info');
-        },
-      });
-      if (res && res.ok === false) { setErr(res.message || 'Could not start the onramp'); setWidgetMounted(false); }
-    } catch (e) {
-      setErr(e.message || 'Could not start the onramp');
-      setWidgetMounted(false);
-    }
+      const addr = await window.WalletBridge.connect();
+      if (!addr) { setBusy(false); return; }
+      setExtAddr(addr);
+      notify && notify('Wallet connected: ' + addr.slice(0, 6) + '...' + addr.slice(-4), 'success');
+      fetch('/api/wallet/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ address: addr }) }).catch(() => {});
+    } catch (e) { setErr(e.message || tr('af.connectFail', 'Connect failed')); }
     setBusy(false);
   };
-
-  const closeWidget = () => {
-    window.AppKitHelper?.closeOnramp?.();
-    setWidgetMounted(false);
-  };
-
-  const doBridge = async () => {
-    setErr('');
-    if (!destAddress) { setErr('Your wallet address is not available yet.'); return; }
-    const amt = parseFloat(amount);
-    if (!(amt > 0)) { setErr(tr('af.enterAmount', 'Enter an amount')); return; }
-    if (!window.AppKitHelper) { setErr('App Kit helper not loaded — reload the page.'); return; }
-    setBusy(true);
-    try {
-      const res = await window.AppKitHelper.bridge({
-        fromChain,
-        toChain: 'Arc_Testnet',
-        recipientAddress: destAddress,
-        amount: amount,
-        // Undefined everywhere else, so the SDK keeps its FAST default.
-        transferSpeed: (BRIDGE_SOURCE_CHAINS.find(c => c.id === fromChain) || {}).standardOnly ? 'SLOW' : undefined,
-      });
-      if (res && res.ok) {
-        notify && notify(tr('af.bridgeStarted', 'Bridge submitted — USDC will arrive on Arc shortly.'), 'success');
-        onFunded && onFunded();
-      } else {
-        setErr((res && res.message) || 'Bridge failed');
-      }
-    } catch (e) { setErr(e.message || 'Bridge failed'); }
-    setBusy(false);
-  };
+  const disconnectExternal = () => { window.WalletBridge?.disconnect?.(); setExtAddr(null); notify && notify('Wallet disconnected', 'info'); };
 
   const doSwap = async () => {
     setErr('');
@@ -153,12 +96,22 @@ function AddFundsPanel({ notify, onFunded }) {
   const tabCls = (id) => `flex-1 flex items-center justify-center gap-1.5 text-xs font-medium rounded-lg py-2 transition-all duration-200 ${tab === id ? 'bg-arc-surface2 text-arc-text' : 'text-arc-muted hover:text-arc-text'}`;
 
   return (
-    <div className="p-5 mb-5">
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-xs uppercase tracking-wide text-arc-faint flex items-center gap-1.5">
-          <Icon name="plus-circle" size={13} className="text-emerald-400" /> {tr('af.title', 'Add funds')}
+    <div className="p-5 mb-5 rounded-2xl bg-arc-surface/60 ring-1 ring-arc-border">
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <div className="text-xs uppercase tracking-[0.18em] text-arc-faint flex items-center gap-1.5">
+          <Icon name="plus-circle" size={13} className="text-arc-accent" /> {tr('af.title', 'Add funds')}
         </div>
-        {isSandbox && <PixBadge color="amber">{tr('balance.sandbox','SANDBOX')}</PixBadge>}
+        <div className="flex items-center gap-2">
+          {extAddr && (
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 ring-1 ring-emerald-500/25 px-2 py-1 text-[10px] font-mono text-emerald-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />{extAddr.slice(0, 4)}…{extAddr.slice(-4)}
+            </span>
+          )}
+          {isMainnet
+            ? <PixBadge color="emerald">{tr('balance.mainnet','Mainnet')}</PixBadge>
+            : <PixBadge color="amber">{tr('balance.testnet','Testnet')}</PixBadge>}
+          {isSandbox && <PixBadge color="amber">{tr('balance.sandbox','SANDBOX')}</PixBadge>}
+        </div>
       </div>
 
       <div className="flex bg-arc-surface/60 ring-1 ring-arc-border rounded-xl p-1 mb-4">
@@ -174,92 +127,113 @@ function AddFundsPanel({ notify, onFunded }) {
       )}
 
       {tab === 'card' && (
-        <div className="space-y-3">
-          <div className="text-xs text-arc-muted leading-relaxed">
-            {tr('af.cardDesc', 'Buy USDC with a debit card, Apple/Google Pay or bank transfer. Circle handles KYC and payment, and delivers the USDC straight to your wallet on Arc — no bridging.')}
+        <div className="py-2">
+          <div className="w-10 h-10 rounded-xl bg-arc-surface2 ring-1 ring-arc-border flex items-center justify-center">
+            <Icon name="clock" size={16} className="text-arc-faint" />
           </div>
-          <div className="text-[11px] text-arc-faint">
-            {tr('af.cardDest', 'Receiving to')}: <span className="font-mono">{destAddress ? destAddress.slice(0, 10) + '…' + destAddress.slice(-6) : '—'}</span>
-          </div>
-          {!widgetMounted ? (
-            <Btn variant="emerald" size="lg" full icon="credit-card" disabled={busy || !destAddress} onClick={openWidget}>
-              {busy ? tr('af.starting', 'Starting…') : tr('af.start', 'Start purchase')}
-            </Btn>
-          ) : (
-            <>
-              <div id="onramp-root" style={{ width: '100%', height: '720px' }} className="rounded-xl overflow-hidden ring-1 ring-arc-border bg-arc-surface/40"></div>
-              <button onClick={closeWidget} className="text-[11px] text-arc-faint hover:text-arc-text transition">
-                {tr('af.closeWidget', 'Close')}
-              </button>
-            </>
-          )}
+          <div className="mt-3 text-[13px] font-medium text-arc-text">{tr('af.cardSoon','Buy with card or bank — coming soon')}</div>
+          <p className="mt-1.5 text-xs text-arc-muted leading-relaxed max-w-prose">
+            {tr('af.cardSoonHint','Card and bank purchases are being re-enabled. Until then, send USDC to your own Arc address from an exchange — it arrives in seconds and needs no bridge.')}
+          </p>
+          <Btn variant="outline" size="sm" icon="arrow-up-right" className="mt-3" onClick={() => setTab('bridge')}>
+            {tr('af.depositInstead','Deposit instead')}
+          </Btn>
         </div>
       )}
 
       {tab === 'bridge' && (
-        // Two genuinely different rails live behind this tab:
-        //   • external wallet (MetaMask) → App Kit signs through EIP-1193
-        //   • Slime Wallet (email login) → no EIP-1193 provider exists, so the
-        //     burn is signed with the user's PIN via a Circle challenge instead
-        // Showing the MetaMask form to an email-login user is a dead end, which
-        // is exactly what it used to do.
-        hasExternalWallet
-          ? (
-            <div className="space-y-3">
-              <div className="text-xs text-arc-muted leading-relaxed">
-                {tr('af.bridgeDesc', 'Move USDC you already hold on another chain to Arc. You sign from your connected external wallet; the USDC lands in your Slime Wallet here.')}
+        // External wallet first. The old App Kit bridge only offered TESTNET
+        // source chains (Base Sepolia, Fuji, …) while the app now runs on Arc
+        // MAINNET, so "Bridge USDC" was a dead end for every real user. Deposit
+        // to the user's own Arc address is the path that actually works.
+        <div className="space-y-4">
+          <p className="text-xs text-arc-muted leading-relaxed max-w-prose">
+            {tr('af.bridgeMainnetDesc','Connect an external wallet (MetaMask, Rabby, Coinbase Wallet) to fund this account, then send USDC on Arc to your own address — it lands in your Slime Wallet instantly.')}
+          </p>
+
+          {extAddr ? (
+            <>
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/25 px-3.5 py-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
+                    {tr('af.connected','External wallet connected')}
+                  </div>
+                  <div className="mt-1 font-mono text-[13px] text-emerald-300 truncate">{extAddr}</div>
+                </div>
+                <button onClick={disconnectExternal} className="text-[11px] text-arc-faint hover:text-rose-300 transition-colors shrink-0">
+                  {tr('balance.disconnect','Disconnect')}
+                </button>
               </div>
+
               <div>
-                <label className="text-xs text-arc-muted">{tr('af.fromChain', 'From chain')}</label>
-                <select value={fromChain} onChange={e => setFromChain(e.target.value)} className={inputCls}>
-                  {BRIDGE_SOURCE_CHAINS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                </select>
+                <label className="text-[11px] text-arc-faint">{tr('af.depositAddr','Your Arc deposit address')}</label>
+                <div className="mt-1.5">
+                  {destAddress
+                    ? <CopyChip value={destAddress} displayValue={destAddress.slice(0, 12) + '…' + destAddress.slice(-8)} />
+                    : <span className="text-xs text-arc-faint">—</span>}
+                </div>
               </div>
-              <div>
-                <label className="text-xs text-arc-muted">{tr('af.amountUsdc', 'Amount (USDC)')}</label>
-                <input value={amount} onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="10.00" className={inputCls} />
-              </div>
-              <Btn variant="emerald" size="lg" full icon="arrow-left-right" disabled={busy || !destAddress} onClick={doBridge}>
-                {busy ? tr('af.working', 'Working…') : tr('af.bridgeCta', 'Bridge to Arc')}
-              </Btn>
-              <div className="text-[10px] text-arc-faint">
-                {tr('af.bridgeNote', 'Requires USDC on the source chain and a connected external wallet (MetaMask).')}
-              </div>
-            </div>
-          )
-          : <UcwBridgePanel notify={notify} onFunded={onFunded} inputCls={inputCls} />
+
+              <p className="text-[11px] text-arc-faint leading-relaxed">
+                {tr('af.depositNote','Send USDC on Arc to that address from your exchange or external wallet. Gas is paid in USDC, so the first send should leave a small buffer.')}
+              </p>
+            </>
+          ) : (
+            <Btn variant="emerald" size="lg" full icon="link" loading={busy} onClick={connectExternal}>
+              {busy ? tr('af.starting', 'Starting…') : tr('af.connectWallet','Connect wallet')}
+            </Btn>
+          )}
+        </div>
       )}
 
       {tab === 'swap' && (
-        <div className="space-y-3">
-          <div className="flex items-start gap-2 text-xs text-amber-300/90 bg-amber-500/10 ring-1 ring-amber-500/25 rounded-lg px-3 py-2">
-            <Icon name="alert-triangle" size={13} className="mt-0.5 shrink-0" />
-            <span>{tr('af.swapMainnet', 'Swapping non-USDC assets (e.g. ETH, BNB) into USDC is a mainnet feature. On testnet only USDC ↔ EURC is available.')}</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-xs text-arc-muted">{tr('af.from', 'From')}</label>
-              <select value={swapTokenIn} onChange={e => setSwapTokenIn(e.target.value)} className={inputCls}>
-                <option value="USDC">USDC</option>
-                <option value="EURC">EURC</option>
-              </select>
+        isMainnet
+          ? (
+            // doSwap() bridges through App Kit with a hardcoded `Arc_Testnet`
+            // target — on mainnet that call cannot succeed, so the form is not
+            // offered there instead of failing after the user signs.
+            <div className="py-2">
+              <div className="w-10 h-10 rounded-xl bg-arc-surface2 ring-1 ring-arc-border flex items-center justify-center">
+                <Icon name="clock" size={16} className="text-arc-faint" />
+              </div>
+              <div className="mt-3 text-[13px] font-medium text-arc-text">{tr('af.swapSoon','Swap — coming soon')}</div>
+              <p className="mt-1.5 text-xs text-arc-muted leading-relaxed max-w-prose">
+                {tr('af.swapSoonHint','Swapping is only available on Arc testnet for now. On mainnet, send USDC to your Arc address instead — no swap needed.')}
+              </p>
             </div>
-            <div>
-              <label className="text-xs text-arc-muted">{tr('af.to', 'To')}</label>
-              <select value={swapTokenOut} onChange={e => setSwapTokenOut(e.target.value)} className={inputCls}>
-                <option value="EURC">EURC</option>
-                <option value="USDC">USDC</option>
-              </select>
+          )
+          : (
+            <div className="space-y-3">
+              <div className="flex items-start gap-2 text-xs text-amber-300/90 bg-amber-500/10 ring-1 ring-amber-500/25 rounded-lg px-3 py-2">
+                <Icon name="alert-triangle" size={13} className="mt-0.5 shrink-0" />
+                <span>{tr('af.swapMainnet', 'Swapping non-USDC assets (e.g. ETH, BNB) into USDC is a mainnet feature. On testnet only USDC ↔ EURC is available.')}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-arc-muted">{tr('af.from', 'From')}</label>
+                  <select value={swapTokenIn} onChange={e => setSwapTokenIn(e.target.value)} className={inputCls}>
+                    <option value="USDC">USDC</option>
+                    <option value="EURC">EURC</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-arc-muted">{tr('af.to', 'To')}</label>
+                  <select value={swapTokenOut} onChange={e => setSwapTokenOut(e.target.value)} className={inputCls}>
+                    <option value="EURC">EURC</option>
+                    <option value="USDC">USDC</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-arc-muted">{tr('af.amount', 'Amount')}</label>
+                <input value={swapAmount} onChange={e => setSwapAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="10.00" className={inputCls} />
+              </div>
+              <Btn variant="emerald" size="lg" full icon="repeat" disabled={busy} onClick={doSwap}>
+                {busy ? tr('af.working', 'Working…') : tr('af.swapCta', 'Swap')}
+              </Btn>
             </div>
-          </div>
-          <div>
-            <label className="text-xs text-arc-muted">{tr('af.amount', 'Amount')}</label>
-            <input value={swapAmount} onChange={e => setSwapAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="10.00" className={inputCls} />
-          </div>
-          <Btn variant="emerald" size="lg" full icon="repeat" disabled={busy} onClick={doSwap}>
-            {busy ? tr('af.working', 'Working…') : tr('af.swapCta', 'Swap')}
-          </Btn>
-        </div>
+          )
       )}
     </div>
   );
@@ -275,271 +249,6 @@ function AddFundsPanel({ notify, onFunded }) {
 //   2. the approval is a separate transaction from the burn
 //   3. the mint waits ~15 min for Circle's attestation, and the USDC is already
 //      out of the source wallet during that window
-function UcwBridgePanel({ notify, onFunded, inputCls }) {
-  const [loading, setLoading] = useState(true);
-  const [data, setData] = useState(null);
-  const [chainKey, setChainKey] = useState('');
-  const [amount, setAmount] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState('');
-  const [err, setErr] = useState('');
-  const [copied, setCopied] = useState('');
-  // Bridge id currently being retried, so only that row's button spins.
-  const [retrying, setRetrying] = useState('');
-
-  const API = window.SLIME_API || '';
-
-  const load = async () => {
-    try {
-      const r = await fetch(API + '/api/wallet/cross-chain', { credentials: 'same-origin' });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) { setErr(d.error || tr('af.ccLoadFail', 'Could not load cross-chain status')); setLoading(false); return; }
-      setData(d);
-      setErr('');
-      if (d.chains && d.chains.length) {
-        // Default to a chain the user already has a wallet on — but only when
-        // nothing is selected yet. Using the functional form keeps the user's
-        // choice across the reload that follows every bridge.
-        const ready = d.chains.find(c => c.address && c.live) || d.chains[0];
-        setChainKey(prev => prev || ready.key);
-      }
-    } catch (e) {
-      setErr(e.message || tr('af.ccLoadFail', 'Could not load cross-chain status'));
-    }
-    setLoading(false);
-  };
-
-  useEffect(() => { load(); }, []);
-
-  const copy = async (text, tag) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(tag);
-      setTimeout(() => setCopied(''), 1500);
-    } catch { /* clipboard blocked — the address is still selectable */ }
-  };
-
-  const provision = async () => {
-    setErr(''); setBusy(true);
-    try {
-      const res = await window.executeUcwChallenge(data.provisionChallenge.challengeId);
-      if (!res) { setErr(tr('af.ccSession', 'Your session expired — sign in again.')); setBusy(false); return; }
-      notify && notify(tr('af.ccWalletsCreated', 'Wallets created.'), 'success');
-      await load();
-    } catch (e) { setErr(e.message || tr('af.ccWalletFail', 'Could not create the wallet')); }
-    setBusy(false);
-  };
-
-  const post = async (body) => {
-    const r = await fetch(API + '/api/wallet/cross-chain', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify(body),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.error || tr('af.ccFail', 'Bridge failed'));
-    return d;
-  };
-
-  const doBridge = async () => {
-    setErr(''); setStatus('');
-    const amt = parseFloat(amount);
-    if (!(amt > 0)) { setErr(tr('af.enterAmount', 'Enter an amount')); return; }
-    if (!window.executeUcwChallenge) { setErr(tr('af.ccSdkMissing', 'Wallet SDK not loaded — reload the page.')); return; }
-    setBusy(true);
-    try {
-      setStatus(tr('af.ccPreparing', 'Preparing…'));
-      const prep = await post({ action: 'prepare', sourceChain: chainKey, amountUsdc: amount });
-
-      // At most two signature steps (approve, then burn). The loop is bounded so
-      // a server bug cannot turn this into an endless PIN prompt.
-      let step = prep.step, challengeId = prep.challengeId, guard = 0;
-      while (step && challengeId && guard < 3) {
-        guard++;
-        setStatus(step === 'approve'
-          ? tr('af.ccApprove', 'Approve USDC in your wallet…')
-          : tr('af.ccBurn', 'Confirm the bridge in your wallet…'));
-        const signed = await window.executeUcwChallenge(challengeId);
-        if (!signed || !signed.txHash) throw new Error(tr('af.ccNoSig', 'Signature was not completed'));
-        const conf = await post({ action: 'confirm', bridgeId: prep.bridgeId, step, txHash: signed.txHash });
-        step = conf.step; challengeId = conf.challengeId;
-      }
-
-      setStatus(tr('af.ccWaiting', 'Burned. Circle is attesting the transfer — this usually takes about 15 minutes, and the USDC is minted to your Arc wallet automatically.'));
-      notify && notify(tr('af.ccStarted', 'Bridge submitted — USDC will arrive on Arc shortly.'), 'success');
-      setAmount('');
-      await load();
-      onFunded && onFunded();
-    } catch (e) {
-      setErr(e.message || tr('af.ccFail', 'Bridge failed'));
-      setStatus('');
-    }
-    setBusy(false);
-  };
-
-  // Re-attempt the Arc mint for a bridge that already burned. Safe to expose:
-  // the amount and recipient are fixed inside Circle's signed attestation, so
-  // this can only ever deliver the user's own funds to their own address.
-  const retry = async (bridgeId) => {
-    setErr(''); setStatus(''); setRetrying(bridgeId);
-    try {
-      const r = await fetch(API + '/api/wallet/cross-chain', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ action: 'retry', bridgeId }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || tr('af.ccFail', 'Bridge failed'));
-      setStatus(d.message || '');
-      if (d.outcome === 'MINTED') notify && notify(d.message, 'success');
-      await load();
-    } catch (e) {
-      setErr(e.message || tr('af.ccFail', 'Bridge failed'));
-    }
-    setRetrying('');
-  };
-
-  if (loading) {
-    return <div className="text-xs text-arc-muted">{tr('af.ccLoading', 'Loading…')}</div>;
-  }
-
-  if (data && data.enabled === false) {
-    return (
-      <div className="text-xs text-arc-muted leading-relaxed">
-        {tr('af.ccDisabled', 'Bridging from your Slime Wallet is not enabled on this deployment. Send USDC to your Arc address instead — you can receive it from any exchange that supports Arc.')}
-      </div>
-    );
-  }
-
-  const chain = (data && data.chains || []).find(c => c.key === chainKey) || null;
-  const needsProvision = !!(data && data.provisionChallenge);
-
-  return (
-    <div className="space-y-3">
-      <div className="text-xs text-arc-muted leading-relaxed">
-        {tr('af.ccDesc', 'Move USDC you hold on another chain to Arc. You confirm each step with your wallet PIN — the USDC is minted straight to your Slime Wallet on Arc.')}
-      </div>
-
-      {err && (
-        <div className="text-xs text-rose-300 bg-rose-500/10 ring-1 ring-rose-500/30 rounded-lg px-3 py-2">{err}</div>
-      )}
-
-      {needsProvision ? (
-        <div className="space-y-3">
-          <div className="flex items-start gap-2 text-xs text-amber-300/90 bg-amber-500/10 ring-1 ring-amber-500/25 rounded-lg px-3 py-2">
-            <Icon name="alert-triangle" size={13} className="mt-0.5 shrink-0" />
-            <span>
-              {tr('af.ccNeedWallets', 'You need a wallet on the source chains first. One confirmation creates:')}{' '}
-              <span className="font-mono">{data.provisionChallenge.chains.join(', ')}</span>
-            </span>
-          </div>
-          <Btn variant="emerald" size="lg" full icon="wallet" disabled={busy} onClick={provision}>
-            {busy ? tr('af.working', 'Working…') : tr('af.ccCreateWallets', 'Create my wallets')}
-          </Btn>
-        </div>
-      ) : (
-        <>
-          <div>
-            <label className="text-xs text-arc-muted">{tr('af.fromChain', 'From chain')}</label>
-            <select value={chainKey} onChange={e => { setChainKey(e.target.value); setErr(''); }} className={inputCls}>
-              {(data && data.chains || []).map(c => (
-                <option key={c.key} value={c.key}>
-                  {c.label}{c.address && c.live ? '' : ' — ' + tr('af.ccNoWalletYet', 'no wallet yet')}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {chain && chain.address && (
-            <div className="rounded-lg bg-arc-surface/60 ring-1 ring-arc-border px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-arc-faint">
-                {/* tr() has no interpolation (see i18n.jsx) — the chain name is
-                    appended rather than templated so translations stay clean. */}
-                {tr('af.ccSendTo', 'Send USDC on this chain to your address')} · {chain.label}
-              </div>
-              <button
-                type="button"
-                onClick={() => copy(chain.address, 'addr')}
-                className="mt-1 w-full text-left font-mono text-[11px] text-arc-text break-all hover:text-emerald-300 transition"
-                title={tr('af.ccCopy', 'Tap to copy')}
-              >
-                {chain.address}
-              </button>
-              <div className="mt-1 text-[10px] text-arc-faint">
-                {copied === 'addr' ? tr('af.ccCopied', 'Copied') : tr('af.ccCopyHint', 'This is your own wallet — the USDC stays yours.')}
-              </div>
-            </div>
-          )}
-
-          {chain && chain.address && (
-            <div className="flex items-start gap-2 text-[11px] text-amber-300/90 bg-amber-500/10 ring-1 ring-amber-500/25 rounded-lg px-3 py-2">
-              <Icon name="fuel" size={13} className="mt-0.5 shrink-0" />
-              <span>
-                {tr('af.ccGasNote', 'This wallet also needs a little of the chain\u2019s native token for network fees. Send a small amount to the same address, or the bridge cannot be signed.')}
-                {' '}<span className="font-mono">{chain.nativeSymbol}</span>
-              </span>
-            </div>
-          )}
-
-          <div>
-            <label className="text-xs text-arc-muted">{tr('af.amountUsdc', 'Amount (USDC)')}</label>
-            <input value={amount} onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="10.00" className={inputCls} />
-          </div>
-
-          <Btn variant="emerald" size="lg" full icon="arrow-left-right"
-            disabled={busy || !chain || !chain.address || !chain.live} onClick={doBridge}>
-            {busy ? tr('af.working', 'Working…') : tr('af.bridgeCta', 'Bridge to Arc')}
-          </Btn>
-
-          {status && (
-            <div className="text-[11px] text-emerald-300/90 bg-emerald-500/10 ring-1 ring-emerald-500/25 rounded-lg px-3 py-2">
-              {status}
-            </div>
-          )}
-
-          <div className="text-[10px] text-arc-faint leading-relaxed">
-            {tr('af.ccNote', 'Two confirmations: approve, then bridge. Standard transfers take about 15 minutes to attest before the USDC appears on Arc.')}
-          </div>
-        </>
-      )}
-
-      {data && data.bridges && data.bridges.length > 0 && (
-        <div className="pt-2 border-t border-arc-border/60 space-y-1.5">
-          <div className="text-[10px] uppercase tracking-wide text-arc-faint">{tr('af.ccRecent', 'Recent bridges')}</div>
-          {data.bridges.slice(0, 5).map(b => (
-            <div key={b.id} className="flex items-center justify-between gap-2 text-[11px]">
-              <span className="text-arc-muted truncate">
-                {b.sourceChainLabel} · {(Number(b.amountMicro) / 1e6).toFixed(2)} USDC
-              </span>
-              <span className="flex items-center gap-2 shrink-0">
-                <span className={b.status === 'MINTED' ? 'text-emerald-300' : b.status === 'FAILED' ? 'text-rose-300' : 'text-amber-300'}>
-                  {tr('af.ccStatus.' + b.status, b.status)}
-                </span>
-                {/* Anything that burned but has not landed yet needs a way out:
-                    the cron runs every 5 minutes, but the user is sitting here
-                    watching USDC that has already left their source wallet. */}
-                {b.status !== 'MINTED' && b.burnTxHash && (
-                  <button
-                    type="button"
-                    onClick={() => retry(b.id)}
-                    disabled={!!retrying}
-                    className="text-arc-accent underline underline-offset-2 hover:brightness-125 disabled:opacity-50"
-                  >
-                    {retrying === b.id ? tr('af.ccChecking', 'Checking…') : tr('af.ccRetry', 'Check')}
-                  </button>
-                )}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-
 function Balance({ usdc, banks, onWithdraw, onAddBank, onWithdrawCrypto, txs, notify }) {
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('qris');
@@ -715,15 +424,15 @@ function Balance({ usdc, banks, onWithdraw, onAddBank, onWithdrawCrypto, txs, no
       {/* ── inline stats (no boxes) ──────────────────────────────────── */}
       <dl className="mt-8 flex flex-wrap items-baseline gap-x-7 gap-y-2 border-t border-arc-border/60 pt-4 text-[11px]">
         <div className="flex items-baseline gap-1.5">
-          <dt className="text-arc-faint">{tr('balance.inLower','in')}</dt>
+          <dt className="text-arc-faint flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />{tr('balance.inLower','in')}</dt>
           <dd className="font-mono tabular-nums text-arc-muted">{inTotal.toFixed(2)}</dd>
         </div>
         <div className="flex items-baseline gap-1.5">
-          <dt className="text-arc-faint">{tr('balance.outLower','out')}</dt>
+          <dt className="text-arc-faint flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-rose-400" aria-hidden="true" />{tr('balance.outLower','out')}</dt>
           <dd className="font-mono tabular-nums text-arc-muted">{outTotal.toFixed(2)}</dd>
         </div>
         <div className="flex items-baseline gap-1.5">
-          <dt className="text-arc-faint">{tr('balance.txsLower','transactions')}</dt>
+          <dt className="text-arc-faint flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-arc-accent" aria-hidden="true" />{tr('balance.txsLower','transactions')}</dt>
           <dd className="font-mono tabular-nums text-arc-muted">{histList.length}</dd>
         </div>
         {pendingCount > 0 && (

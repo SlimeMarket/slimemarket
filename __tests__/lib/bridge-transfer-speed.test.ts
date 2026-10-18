@@ -40,15 +40,26 @@ describe("bridge — transferSpeed is sent for Standard-Transfer-only chains", (
     expect(ENTRY).toMatch(/\.\.\.\(transferSpeed \?/);
   });
 
-  it("marks exactly the Standard-only source chains", () => {
-    // Avalanche Fuji and Polygon Amoy are the Standard-only entries in the list.
-    const flagged = [...BALANCE.matchAll(/\{\s*id:\s*'([A-Za-z_]+)'[^}]*standardOnly:\s*true/g)].map(
-      (m) => m[1],
-    );
-    expect(flagged.sort()).toEqual(["Avalanche_Fuji", "Polygon_Amoy_Testnet"]);
+  it("add funds no longer offers a TESTNET source-chain bridge on mainnet", () => {
+    // The add-funds Bridge tab used to list Base Sepolia / Fuji / Amoy etc. while
+    // the app runs on Arc MAINNET, so "Bridge USDC" could never work. Funding is
+    // now external-wallet-first: connect, then deposit to the user's own Arc
+    // address. These assertions keep the dead testnet list from coming back.
+    expect(BALANCE).not.toMatch(/BRIDGE_SOURCE_CHAINS/);
+    expect(BALANCE).not.toMatch(/Base_Sepolia/);
+    expect(BALANCE).not.toMatch(/window\.AppKitHelper\.bridge/);
   });
 
-  it("downgrades to SLOW for those chains when calling bridge", () => {
-    expect(BALANCE).toMatch(/transferSpeed:[\s\S]{0,120}standardOnly[\s\S]{0,40}\?\s*'SLOW'/);
+  it("the bridge tab gates on a connected external wallet", () => {
+    // "pake external wallet / connect wallet dulu": no wallet connected means
+    // only a Connect CTA is shown, never a form that submits a bridge.
+    expect(BALANCE).toMatch(/connectExternal/);
+    expect(BALANCE).toMatch(/extAddr \?/);
+    expect(BALANCE).not.toMatch(/doBridge/);
+  });
+
+  it("labels the network as mainnet or testnet, never silently", () => {
+    expect(BALANCE).toMatch(/isMainnet/);
+    expect(BALANCE).toMatch(/PixBadge color="emerald">\{tr\('balance\.mainnet'/);
   });
 });

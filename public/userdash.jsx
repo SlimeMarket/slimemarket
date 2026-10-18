@@ -156,7 +156,7 @@ function UserDashboard({ notify, avatarImg, onChangePin, pinChangeBusy }) {
       </div>
 
       {/* avatar + name */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 rounded-2xl bg-gradient-to-br from-arc-primary/10 to-arc-surface ring-1 ring-arc-primary/25 p-5">
         <div className="relative group cursor-pointer w-16 h-16 shrink-0" onClick={() => avatarRef.current && avatarRef.current.click()}>
           <Avatar gradient={ME.avatar} img={avatarImg} name={ME.name} size={64} ring />
           <div className="absolute inset-0 rounded-xl bg-arc-bg/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
@@ -191,7 +191,7 @@ function UserDashboard({ notify, avatarImg, onChangePin, pinChangeBusy }) {
       </div>
 
       {/* actions */}
-      <div className="mt-5 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap gap-2">
         {editMode ? (
           <>
             <Btn variant="outline" size="sm" onClick={() => setEditMode(false)} disabled={saving}>{tr('c.cancel','Cancel')}</Btn>
@@ -208,17 +208,17 @@ function UserDashboard({ notify, avatarImg, onChangePin, pinChangeBusy }) {
       {/* ── inline stats ──────────────────────────────────────────────── */}
       <dl className="mt-8 flex flex-wrap items-baseline gap-x-7 gap-y-2 border-t border-arc-border/60 pt-4 text-[11px]">
         <div className="flex items-baseline gap-1.5">
-          <dt className="text-arc-faint">{tr('ud.balanceLower','balance')}</dt>
+          <dt className="text-arc-faint flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />{tr('ud.balanceLower','balance')}</dt>
           <dd className="font-mono tabular-nums text-arc-muted">
             {Number(stats.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
           </dd>
         </div>
         <div className="flex items-baseline gap-1.5">
-          <dt className="text-arc-faint">{tr('ud.transactionsLower','transactions')}</dt>
+          <dt className="text-arc-faint flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-arc-accent" aria-hidden="true" />{tr('ud.transactionsLower','transactions')}</dt>
           <dd className="font-mono tabular-nums text-arc-muted">{stats.transactions}</dd>
         </div>
         <div className="flex items-baseline gap-1.5">
-          <dt className="text-arc-faint">{tr('ud.ratingLower','rating')}</dt>
+          <dt className="text-arc-faint flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-hidden="true" />{tr('ud.ratingLower','rating')}</dt>
           <dd className="font-mono tabular-nums text-arc-muted">{stats.rating.toFixed(1)}</dd>
         </div>
       </dl>
