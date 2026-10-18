@@ -142,252 +142,197 @@ function UserDashboard({ notify, avatarImg, onChangePin, pinChangeBusy }) {
   const visibleBuys = showCancelled ? buyOrders : buyOrders.filter(o => !isDeadAttempt(o));
 
   return (
-    <div className="anim-view">
-      <div className="flex items-center gap-2.5 mb-5 flex-wrap">
-        <h1 className="text-xl font-bold text-white">{tr('ud.title','Dashboard')}</h1>
-        <PixBadge color="blue">{tr('ud.profileBadge','PROFILE')}</PixBadge>
+    <div className="anim-view max-w-3xl mx-auto">
+      {/* ── identity ─────────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-3 mb-8">
+        <div className="min-w-0">
+          <div className="text-[10px] font-pixel uppercase tracking-[0.22em] text-arc-faint">{tr('ud.profileBadge','PROFILE')}</div>
+          <h1 className="mt-1.5 text-lg font-semibold tracking-tight text-white">{tr('ud.title','Dashboard')}</h1>
+        </div>
         <button onClick={goWallet}
-          className="ml-auto text-sm text-arc-accent hover:brightness-125 inline-flex items-center gap-1.5 transition-all duration-200 hover:-translate-y-0.5">
-          <Icon name="wallet" size={15} /> {tr('ud.wallet','Wallet')} <Icon name="chevron-right" size={14} />
+          className="inline-flex items-center gap-1.5 text-xs text-arc-muted hover:text-arc-text transition-colors">
+          <Icon name="wallet" size={14} /> {tr('ud.wallet','Wallet')}
         </button>
       </div>
 
-      {/* profile header */}
-      <div className="relative overflow-hidden rounded-3xl ring-1 ring-arc-border bg-gradient-to-br from-arc-surface to-arc-surface2/50 mb-5 transition-all duration-300 hover:shadow-glow">
-        <div className="px-6 py-5 flex flex-col sm:flex-row sm:items-end gap-4 relative z-20">
-          <div className="relative group cursor-pointer w-20 h-20" onClick={() => avatarRef.current && avatarRef.current.click()}>
-            <Avatar gradient={ME.avatar} img={avatarImg} name={ME.name} size={80} ring />
-            <div className="absolute inset-0 rounded-xl bg-arc-bg/60 opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center gap-0.5">
-              <Icon name="camera" size={18} className="text-white" />
-              <span className="text-[9px] text-white font-medium">{tr('ud.changePhoto','Change Photo')}</span>
-            </div>
-            <input ref={avatarRef} type="file" accept="image/*" className="hidden" onChange={e => pickAvatar(e.target.files[0])} />
+      {/* avatar + name */}
+      <div className="flex items-center gap-4">
+        <div className="relative group cursor-pointer w-16 h-16 shrink-0" onClick={() => avatarRef.current && avatarRef.current.click()}>
+          <Avatar gradient={ME.avatar} img={avatarImg} name={ME.name} size={64} ring />
+          <div className="absolute inset-0 rounded-xl bg-arc-bg/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+            <Icon name="camera" size={16} className="text-white" />
           </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              {editMode ? (
-                <input value={editName} onChange={e => setEditName(e.target.value)}
-                  className="text-xl font-bold text-white bg-arc-bg/80 ring-1 ring-arc-border focus:ring-arc-primary/50 rounded-lg px-3 py-1 outline-none z-30 relative transition-all duration-200 hover:ring-arc-borderlt" />
-              ) : (
-                <h2 className="text-xl font-bold text-white">{ME.name}</h2>
-              )}
-            </div>
-            <div className="flex items-center gap-2 mt-0.5">
-              {editMode ? (
-                <input value={editHandle.replace('@', '')} onChange={e => setEditHandle(e.target.value.startsWith('@') ? e.target.value : '@' + e.target.value)}
-                  className="text-sm text-arc-muted bg-arc-bg/80 ring-1 ring-arc-border focus:ring-arc-primary/50 rounded-lg px-2 py-0.5 outline-none z-30 relative transition-all duration-200 hover:ring-arc-borderlt" />
-              ) : (
-                <span className="text-sm text-arc-muted">{ME.handle?.replace('@', '') || ME.name}</span>
-              )}
-              <span className="text-sm text-arc-faint">· {tr('ud.memberSince','member since')} {ME.joined ? new Date(ME.joined).toLocaleDateString('en-US',{month:'short',year:'numeric'}) : '—'}</span>
-            </div>
-            {/* .C2: UID row */}
-            <div className="mt-2 flex items-center gap-2 flex-wrap">
-              <CopyChip value={ME.uid || '—'} label="UID" />
-            </div>
-          </div>
-          <div className="flex gap-2 relative z-30">
+          <input ref={avatarRef} type="file" accept="image/*" className="hidden" onChange={e => pickAvatar(e.target.files[0])} />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          {editMode ? (
+            <input value={editName} onChange={e => setEditName(e.target.value)}
+              className="w-full text-xl font-bold text-white bg-arc-bg/80 ring-1 ring-arc-border focus:ring-arc-primary/40 rounded-lg px-3 py-1 outline-none transition" />
+          ) : (
+            <h2 className="text-xl font-bold tracking-tight text-white truncate">{ME.name}</h2>
+          )}
+
+          <div className="mt-1 flex items-center gap-2 text-sm text-arc-muted">
             {editMode ? (
-              <>
-                <Btn variant="outline" size="sm" onClick={() => setEditMode(false)} disabled={saving} className="transition-all duration-200 hover:-translate-y-0.5">{tr('c.cancel','Cancel')}</Btn>
-                <Btn variant="emerald" size="sm" icon="check" onClick={saveProfile} loading={saving} className="transition-all duration-200 hover:shadow-glow">{tr('c.save','Save')}</Btn>
-              </>
+              <input value={editHandle.replace('@', '')} onChange={e => setEditHandle(e.target.value.startsWith('@') ? e.target.value : '@' + e.target.value)}
+                className="text-sm text-arc-muted bg-arc-bg/80 ring-1 ring-arc-border focus:ring-arc-primary/40 rounded-md px-2 py-0.5 outline-none transition" />
             ) : (
-              <>
-                <Btn variant="outline" size="sm" icon="pencil" onClick={() => { setEditName(ME.name); setEditHandle(ME.handle); setEditMode(true); }} className="transition-all duration-200 hover:-translate-y-0.5">{tr('ud.editProfile','Edit Profile')}</Btn>
-                <Btn variant="outline" size="sm" icon="share-2" onClick={() => notify('Coming soon', 'info')} className="transition-all duration-200 hover:-translate-y-0.5">{tr('ud.share','Share')}</Btn>
-              </>
+              <span className="truncate">{ME.handle?.replace('@', '') || ME.name}</span>
+            )}
+            <span className="text-arc-faint/50">·</span>
+            <span className="text-arc-faint whitespace-nowrap">
+              {tr('ud.memberSince','member since')} {ME.joined ? new Date(ME.joined).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'}
+            </span>
+          </div>
+
+          <div className="mt-2"><CopyChip value={ME.uid || '—'} label="UID" /></div>
+        </div>
+      </div>
+
+      {/* actions */}
+      <div className="mt-5 flex flex-wrap gap-2">
+        {editMode ? (
+          <>
+            <Btn variant="outline" size="sm" onClick={() => setEditMode(false)} disabled={saving}>{tr('c.cancel','Cancel')}</Btn>
+            <Btn variant="emerald" size="sm" icon="check" onClick={saveProfile} loading={saving}>{tr('c.save','Save')}</Btn>
+          </>
+        ) : (
+          <>
+            <Btn variant="outline" size="sm" icon="pencil" onClick={() => { setEditName(ME.name); setEditHandle(ME.handle); setEditMode(true); }}>{tr('ud.editProfile','Edit Profile')}</Btn>
+            <Btn variant="ghost" size="sm" icon="share-2" onClick={() => notify('Coming soon', 'info')}>{tr('ud.share','Share')}</Btn>
+          </>
+        )}
+      </div>
+
+      {/* ── inline stats ──────────────────────────────────────────────── */}
+      <dl className="mt-8 flex flex-wrap items-baseline gap-x-7 gap-y-2 border-t border-arc-border/60 pt-4 text-[11px]">
+        <div className="flex items-baseline gap-1.5">
+          <dt className="text-arc-faint">{tr('ud.balanceLower','balance')}</dt>
+          <dd className="font-mono tabular-nums text-arc-muted">
+            {Number(stats.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
+          </dd>
+        </div>
+        <div className="flex items-baseline gap-1.5">
+          <dt className="text-arc-faint">{tr('ud.transactionsLower','transactions')}</dt>
+          <dd className="font-mono tabular-nums text-arc-muted">{stats.transactions}</dd>
+        </div>
+        <div className="flex items-baseline gap-1.5">
+          <dt className="text-arc-faint">{tr('ud.ratingLower','rating')}</dt>
+          <dd className="font-mono tabular-nums text-arc-muted">{stats.rating.toFixed(1)}</dd>
+        </div>
+      </dl>
+
+      {/* ── verification + contacts ───────────────────────────────────── */}
+      <div className="mt-10">
+        <h2 className="text-[10px] uppercase tracking-[0.2em] text-arc-faint">{tr('ud.verifStatus','Verification Status')}</h2>
+        <div className="mt-1 divide-y divide-arc-border/50 border-t border-arc-border/60">
+          <VerifRow label={tr('ud.walletAddress','Wallet Address')} ok={!!ME.wallet} />
+          <VerifRow label={tr('ud.twoFa','2FA Authenticator')} ok={false} />
+        </div>
+      </div>
+
+      <ContactsCard notify={notify} />
+
+      {/* ── buying log ────────────────────────────────────────────────── */}
+      <section className="mt-10">
+        <div className="flex items-baseline justify-between gap-3">
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-[10px] uppercase tracking-[0.2em] text-arc-faint">{tr('ud.buyingLog','Buying Log')}</h2>
+            {!buyOrdersLoading && buyOrders.length > 0 && (
+              <span className="text-[10px] font-mono text-arc-faint tabular-nums">{stats.transactions}/{buyOrders.length}</span>
             )}
           </div>
+          {cancelledCount > 0 && (
+            <button type="button" onClick={() => setShowCancelled(v => !v)}
+              className="text-[11px] text-arc-faint hover:text-arc-text transition-colors">
+              {showCancelled ? tr('ud.hideCancelled','Hide cancelled') : tr('ud.showCancelled','Show cancelled') + ' (' + cancelledCount + ')'}
+            </button>
+          )}
         </div>
-      </div>
 
-      {/* Stats grid — premium gradient cards with hover lift */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5 ud-fade-in">
-        {/* Balance card */}
-        <Card className="p-5 bg-gradient-to-br from-arc-primary/10 to-arc-surface ring-1 ring-arc-primary/30 shadow-glow-emerald transition-all duration-200 hover:-translate-y-0.5 hover:shadow-glow hover:ring-arc-primary/50">
-          <div className="flex items-center gap-2.5 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 flex items-center justify-center ring-1 ring-emerald-500/30">
-              <Icon name="wallet" size={20} className="text-emerald-400" />
-            </div>
-            <div>
-              <div className="text-xs uppercase tracking-wide text-arc-muted">{tr('ud.walletBalance','Wallet Balance')}</div>
-              <div className="text-lg font-bold text-emerald-400"><Usdc value={stats.balance} /></div>
-            </div>
-          </div>
-        </Card>
-
-        {/* Transaction count card */}
-        <Card className="p-5 bg-gradient-to-br from-arc-surface to-arc-surface2/50 ring-1 ring-arc-border transition-all duration-200 hover:-translate-y-0.5 hover:shadow-glow hover:ring-arc-borderlt">
-          <div className="flex items-center gap-2.5 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-arc-accent/15 flex items-center justify-center ring-1 ring-arc-accent/30">
-              <Icon name="history" size={20} className="text-arc-accent" />
-            </div>
-            <div>
-              <div className="text-xs uppercase tracking-wide text-arc-muted">{tr('ud.transactions','Transactions')}</div>
-              <div className="text-lg font-bold text-arc-text">{stats.transactions}</div>
-            </div>
-          </div>
-        </Card>
-
-        {/* Rating card */}
-        <Card className="p-5 bg-gradient-to-br from-arc-surface to-arc-surface2/50 ring-1 ring-arc-border transition-all duration-200 hover:-translate-y-0.5 hover:shadow-glow hover:ring-arc-borderlt">
-          <div className="flex items-center gap-2.5 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center ring-1 ring-amber-500/30">
-              <Icon name="star" size={20} className="text-amber-400" />
-            </div>
-            <div>
-              <div className="text-xs uppercase tracking-wide text-arc-muted">{tr('ud.rating','Rating')}</div>
-              <div className="flex items-center gap-1 mt-0.5">
-                <Stars value={stats.rating} size={14} />
-                <span className="text-lg font-bold text-arc-text">{stats.rating.toFixed(1)}</span>
+        {buyOrdersLoading ? (
+          <div className="mt-4 space-y-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg animate-pulse bg-arc-surface2/40 shrink-0"></div>
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-3 animate-pulse bg-arc-surface2/40 rounded-lg w-1/2"></div>
+                  <div className="h-2.5 animate-pulse bg-arc-surface2/40 rounded-lg w-1/3"></div>
+                </div>
+                <div className="space-y-1.5 text-right">
+                  <div className="h-3 w-16 animate-pulse bg-arc-surface2/40 rounded-lg ml-auto"></div>
+                  <div className="h-2 w-10 animate-pulse bg-arc-surface2/40 rounded-lg ml-auto"></div>
+                </div>
               </div>
-            </div>
+            ))}
           </div>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* LEFT: verification + contacts */}
-        <div className="space-y-5">
-          {/* Verification */}
-          <Card className="p-5 bg-gradient-to-br from-arc-surface to-arc-surface2/50 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-glow">
-            <div className="flex items-center gap-2 mb-3">
-              <Icon name="user-check" size={16} className="text-arc-accent" />
-              <span className="text-sm font-semibold text-arc-text">{tr('ud.verifStatus','Verification Status')}</span>
-            </div>
-            <div className="space-y-2.5">
-              <VerifRow label={tr('ud.walletAddress','Wallet Address')} ok={!!ME.wallet} />
-              <VerifRow label={tr('ud.twoFa','2FA Authenticator')} ok={false} />
-            </div>
-          </Card>
-
-          {/* Opsi A (2026-09-27) — "Wallet PIN Security" hub REMOVED.
-              Circle auto-provisions PIN + security questions for authMode EMAIL,
-              which is every account (email OTP is the only sign-in), so there was
-              never a user-chosen PIN to change or restore. PinManagement is still
-              defined (public/pin-management.jsx) for a future PIN-based auth mode. */}
-
-          {/* Contacts */}
-          <ContactsCard notify={notify} />
-        </div>
-
-        {/* RIGHT: buying log */}
-        <div className="lg:col-span-2">
-          {/* Buying Log */}
-          <Card className="overflow-hidden bg-gradient-to-br from-arc-surface to-arc-surface2/50 ud-fade-in">
-            <div className="flex items-center gap-2 px-5 py-3.5 border-b border-arc-border">
-              <Icon name="shopping-bag" size={16} className="text-emerald-400" />
-              <span className="text-sm font-semibold text-arc-text">{tr('ud.buyingLog','Buying Log')}</span>
-              {!buyOrdersLoading && buyOrders.length > 0 && (
-                <span className="text-[10px] font-pixel text-arc-faint ml-1">
-                  {stats.transactions}/{buyOrders.length} {tr('ud.orders','ORDERS')}
-                </span>
-              )}
-              {cancelledCount > 0 && (
-                <button type="button" onClick={() => setShowCancelled(v => !v)}
-                  className="ml-auto text-[10px] text-arc-faint hover:text-arc-accent transition-colors">
-                  {showCancelled
-                    ? tr('ud.hideCancelled','Hide cancelled')
-                    : tr('ud.showCancelled','Show cancelled') + ' (' + cancelledCount + ')'}
+        ) : visibleBuys.length > 0 ? (
+          <div className="mt-1 divide-y divide-arc-border/50 border-t border-arc-border/60">
+            {visibleBuys.map(o => {
+              const st = UD_STATUS[o.status] || { label: o.status || '—', cls: 'bg-arc-surface2 text-arc-muted ring-arc-border' };
+              const dead = isDeadAttempt(o);
+              return (
+                <button key={o.id} type="button"
+                  onClick={() => {
+                    // Same route app.jsx uses (pushTo('orderdetail', …)); the
+                    // popstate event is what makes the SPA re-render.
+                    window.SlimeRouter.pushPath('orderdetail', { id: o.id });
+                    window.dispatchEvent(new PopStateEvent('popstate'));
+                    window.scrollTo && window.scrollTo(0, 0);
+                  }}
+                  className={`w-full text-left flex items-center gap-3 py-3 ${dead ? 'opacity-55' : ''}`}>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] text-arc-text font-medium leading-tight truncate">{o.product_name || 'Product'}</div>
+                    <div className="mt-0.5 text-[11px] text-arc-faint truncate">
+                      {tr('ud.from','from')} {o.store_name || 'Seller'} · {o.category || 'General'}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-arc-faint/70 font-mono truncate">
+                      #{String(o.id || '').slice(0, 8)}
+                      {udWhen(o.timestamp || o.created_at) ? ' · ' + udWhen(o.timestamp || o.created_at) : ''}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className={`font-mono text-[13px] tabular-nums ${dead ? 'text-arc-muted' : 'text-emerald-400'}`}>
+                      {udFmtUsdc(o.amount)} <span className="text-[10px] text-arc-faint">USDC</span>
+                    </div>
+                    <div className="mt-0.5 flex justify-end">
+                      <span className={`inline-block text-[9px] leading-none px-1.5 py-1 rounded ring-1 uppercase tracking-[0.1em] ${st.cls}`}>{st.label}</span>
+                    </div>
+                  </div>
                 </button>
-              )}
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-3 border-t border-arc-border/60 py-10 text-center">
+            <div className="text-[13px] text-arc-muted">
+              {cancelledCount > 0 ? tr('ud.noCompleted','No completed purchases yet') : tr('ud.noPurchases','No purchases yet')}
             </div>
-            <div className="divide-y divide-arc-border/60">
-              {buyOrdersLoading ? (
-                <div className="px-5 py-4 space-y-4">
-                  {[...Array(4)].map((_, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl animate-pulse bg-arc-surface2/40 shrink-0 rounded-lg"></div>
-                      <div className="flex-1 space-y-1.5">
-                        <div className="h-3 animate-pulse bg-arc-surface2/40 rounded-lg w-1/2"></div>
-                        <div className="h-2.5 animate-pulse bg-arc-surface2/40 rounded-lg w-1/3"></div>
-                      </div>
-                      <div className="space-y-1.5 text-right">
-                        <div className="h-3 w-16 animate-pulse bg-arc-surface2/40 rounded-lg ml-auto"></div>
-                        <div className="h-2 w-10 animate-pulse bg-arc-surface2/40 rounded-lg ml-auto"></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : visibleBuys.length > 0 ? visibleBuys.map(o => {
-                const refunded = isRefunded(o);
-                const st = UD_STATUS[refunded ? 'REFUNDED' : o.status] || { label: o.status || '—', cls: 'bg-arc-surface2 text-arc-muted ring-arc-border' };
-                const dead = isDeadAttempt(o);
-                return (
-                  <button key={o.id} type="button"
-                    onClick={() => {
-                      // Same route app.jsx uses (pushTo('orderdetail', …)); the
-                      // popstate event is what makes the SPA re-render.
-                      window.SlimeRouter.pushPath('orderdetail', { id: o.id });
-                      window.dispatchEvent(new PopStateEvent('popstate'));
-                      window.scrollTo && window.scrollTo(0, 0);
-                    }}
-                    className={`w-full text-left flex items-center gap-3 px-5 py-3.5 hover:bg-arc-surface2/40 transition-all duration-200 hover-lift-row ${dead ? 'opacity-55' : ''}`}>
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 rounded-lg ${dead ? 'bg-arc-surface2 text-arc-faint' : 'bg-emerald-500/15 text-emerald-400'}`}>
-                      <Icon name="package" size={16} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm text-arc-text font-medium leading-tight truncate">{o.product_name || 'Product'}</div>
-                      <div className="text-[11px] text-arc-faint truncate">
-                        {tr('ud.from','from')} {o.store_name || 'Seller'} · {o.category || 'General'}
-                      </div>
-                      <div className="text-[10px] text-arc-faint/80 font-mono truncate">
-                        #{String(o.id || '').slice(0, 8)}
-                        {udWhen(o.timestamp || o.created_at) ? ' · ' + udWhen(o.timestamp || o.created_at) : ''}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className={`font-mono text-sm ${dead ? 'text-arc-muted' : 'text-emerald-400'}`}>
-                        {udFmtUsdc(o.amount)} <span className="text-[10px] text-arc-faint">USDC</span>
-                      </div>
-                      <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-md ring-1 ${st.cls}`}>{st.label}</span>
-                    </div>
-                    <Icon name="chevron-right" size={14} className="text-arc-faint shrink-0" />
-                  </button>
-                );
-              }) : (
-                <div className="py-16 flex flex-col items-center gap-4 text-center ud-fade-in">
-                  <div className="w-20 h-20 rounded-2xl bg-arc-surface2/60 ring-1 ring-arc-border flex items-center justify-center transition-transform duration-300 hover:scale-110">
-                    <Icon name="shopping-bag" size={32} className="text-arc-faint" />
-                  </div>
-                  <div>
-                    <div className="text-base font-semibold text-arc-text">
-                      {cancelledCount > 0
-                        ? tr('ud.noCompleted','No completed purchases yet')
-                        : tr('ud.noPurchases','No purchases yet')}
-                    </div>
-                    <div className="text-xs text-arc-faint mt-1">
-                      {cancelledCount > 0
-                        ? cancelledCount + ' ' + tr('ud.cancelledHint','cancelled checkout attempts are hidden')
-                        : tr('ud.browseHint','Browse the marketplace to find something')}
-                    </div>
-                  </div>
-                  {cancelledCount > 0 && (
-                    <button type="button" onClick={() => setShowCancelled(true)}
-                      className="text-xs text-arc-accent hover:brightness-125 transition-all">
-                      {tr('ud.showCancelled','Show cancelled') + ' (' + cancelledCount + ')'}
-                    </button>
-                  )}
-                </div>
-              )}
+            <div className="mt-1 text-[11px] text-arc-faint">
+              {cancelledCount > 0
+                ? cancelledCount + ' ' + tr('ud.cancelledHint','cancelled checkout attempts are hidden')
+                : tr('ud.browseHint','Browse the marketplace to find something')}
             </div>
-          </Card>
-        </div>
-      </div>
+            {cancelledCount > 0 && (
+              <button type="button" onClick={() => setShowCancelled(true)}
+                className="mt-3 text-[11px] text-arc-accent hover:brightness-125 transition">
+                {tr('ud.showCancelled','Show cancelled') + ' (' + cancelledCount + ')'}
+              </button>
+            )}
+          </div>
+        )}
+      </section>
     </div>
-  );
-}
+  );}
 
 function VerifRow({ label, ok, pending }) {
   return (
-    <div className="flex items-center gap-2.5 text-sm">
-      <div className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${ok ? 'bg-emerald-500/20 text-emerald-400' : pending ? 'bg-amber-500/20 text-amber-400' : 'bg-arc-surface2 text-arc-faint'} rounded-lg`}>
-        <Icon name={ok ? 'check' : pending ? 'loader' : 'minus'} size={13} className={pending ? 'animate-spin' : ''} />
-      </div>
-      <span className={ok ? 'text-arc-muted' : 'text-arc-faint'}>{label}</span>
-      {ok && <span className="ml-auto text-[10px] text-emerald-400/70 font-pixel">OK</span>}
-      {pending && <span className="ml-auto text-[10px] text-amber-400/70 font-pixel">{tr('ud.pending','PENDING')}</span>}
+    <div className="flex items-center justify-between gap-3 py-2.5">
+      <span className={`text-[13px] ${ok ? 'text-arc-muted' : 'text-arc-faint'}`}>{label}</span>
+      <span className={`text-[10px] uppercase tracking-[0.12em] ${ok ? 'text-emerald-400/80' : pending ? 'text-amber-300/90' : 'text-arc-faint'}`}>
+        {ok ? 'OK' : pending ? tr('ud.pending','PENDING') : '—'}
+      </span>
     </div>
   );
 }
@@ -423,20 +368,19 @@ function ContactsCard({ notify }) {
     setSaving(false);
   };
   return (
-    <Card className="p-5 bg-gradient-to-br from-arc-surface to-arc-surface2/50 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-glow">
-      <div className="flex items-center gap-2 mb-3">
-        <Icon name="contact" size={16} className="text-arc-accent" />
-        <span className="text-sm font-semibold text-arc-text">{tr('ud.contacts','Contacts')}</span>
-        <button onClick={() => edit ? save() : setEdit(true)} disabled={saving} className="ml-auto text-xs text-arc-accent hover:brightness-125 inline-flex items-center gap-1 transition-all duration-200 hover:-translate-y-0.5">
-          <Icon name={edit ? 'check' : 'pencil'} size={12} /> {edit ? tr('c.save','Save') : tr('c.edit','Edit')}
+    <div className="mt-10">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[10px] uppercase tracking-[0.2em] text-arc-faint">{tr('ud.contacts','Contacts')}</span>
+        <button onClick={() => edit ? save() : setEdit(true)} disabled={saving} className="text-[11px] text-arc-faint hover:text-arc-text transition-colors inline-flex items-center gap-1">
+          <Icon name={edit ? 'check' : 'pencil'} size={11} /> {edit ? tr('c.save','Save') : tr('c.edit','Edit')}
         </button>
       </div>
-      <div className="space-y-3">
+      <div className="mt-1 divide-y divide-arc-border/50 border-t border-arc-border/60">
         {rows.map(r => (
-          <div key={r.key} className="flex items-center gap-2.5">
-            <div className={`w-8 h-8 rounded-lg ring-1 flex items-center justify-center shrink-0 ${r.ring} rounded-xl`}><Icon name={r.icon} size={15} className={r.color} /></div>
+          <div key={r.key} className="flex items-center gap-3 py-2.5">
+            <Icon name={r.icon} size={14} className={r.color + ' shrink-0'} />
             <div className="flex-1 min-w-0">
-              <div className="text-[10px] uppercase tracking-wide text-arc-faint">{r.label}</div>
+              <div className="text-[10px] uppercase tracking-[0.12em] text-arc-faint">{r.label}</div>
               {edit ? (
                 <input value={c[r.key] || ''} onChange={e => setC(prev => ({ ...prev, [r.key]: e.target.value }))}
                   className="w-full bg-arc-bg/60 ring-1 ring-arc-border focus:ring-arc-primary/50 rounded-lg px-2.5 h-8 text-sm text-arc-text outline-none transition-all duration-200 hover:ring-arc-borderlt mt-0.5" />
@@ -446,12 +390,12 @@ function ContactsCard({ notify }) {
             </div>
             {!edit && c[r.key] && (
               <button onClick={() => { navigator.clipboard?.writeText(c[r.key]); notify && notify(r.label + ' ' + tr('ud.copied','copied'), 'info'); }}
-                className="text-arc-faint hover:text-arc-text transition-all duration-200 hover:-translate-y-0.5"><Icon name="copy" size={14} /></button>
+                className="text-arc-faint hover:text-arc-text transition-colors"><Icon name="copy" size={13} /></button>
             )}
           </div>
         ))}
       </div>
-    </Card>
+    </div>
   );
 }
 
