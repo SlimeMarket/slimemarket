@@ -19,7 +19,13 @@
 function ProductCard({ product, onBuy, onOpen, index }) {
   const variants = product.variants || [{ label: 'Default', price: product.price || 0 }];
   const lowPrice = Math.min(...variants.map(v => v.price));
-  const soldOut = product.status === 'soldout';
+  // Two ways a product can be unavailable: the RPC flagged it soldout, or the
+  // count from `product_stock_items` (instant) / `stock` (manual) dropped to
+  // zero without the status flag catching up. The client should refuse Buy
+  // either way; the migration that keeps the flag honest lives at
+  // supabase/migrations/0100.
+  const noStock = (product.stock || 0) <= 0 && (product.stockItems?.length || 0) <= 0;
+  const soldOut = product.status === 'soldout' || noStock;
   return (
     <div
       className="group relative bg-gradient-to-br from-arc-surface to-arc-surface2/50 ring-1 ring-arc-border rounded-2xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-glow hover:ring-arc-borderlt flex flex-col sf-card-in"

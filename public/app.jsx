@@ -1344,6 +1344,10 @@ function App() {
         method: 'POST', body: JSON.stringify(confirmBody),
       });
       await refreshWallet(); await refreshOrders();
+      // Refresh the catalog so the home/explore grids stop showing products
+      // that just sold their last unit (the 0100 migration makes that exact,
+      // but the in-page list also needs the update).
+      if (window.loadCatalog) window.loadCatalog().then(ok => { if (ok) bumpCatalog(); });
       const order = await api('/api/orders/' + confirmed.orderId).catch(() => null);
       if (order) { setSelOrder(order); setCheckoutDone(order); }
       // never claim success we cannot prove. `onChainOrderId` is the
@@ -1353,6 +1357,10 @@ function App() {
       // when nothing was submitted at all.
       if (confirmed.onChainOrderId) {
         notify('Payment successful! Seller is processing.', 'success');
+        // Take the user straight to the order page — no extra click, no need
+        // to refresh. The "done" modal is dismissed and the order view opens.
+        setCheckoutDone(null);
+        pushTo('orderdetail', { id: order.id });
       } else {
         notify(tr('co.paymentPending', 'Payment submitted — confirming on-chain. This can take a moment.'), 'info');
       }

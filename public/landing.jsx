@@ -108,7 +108,9 @@ function TrendingSlider({ products, onProduct, onBuy }) {
           <div className="text-sm text-white/70 mt-1 max-w-xs">{tr('home.trendingBadge','HOT · recently purchased')}</div>
         </div>
         <div className="mt-auto pt-4 flex items-center gap-2.5">
-          <Btn size="sm" icon="zap" onClick={() => onBuy(p)}>{tr('c.buy','Buy')}</Btn>
+          {(p.status === 'soldout' || ((p.stock || 0) <= 0 && (p.stockItems?.length || 0) <= 0))
+            ? <span className="text-[11px] font-semibold text-rose-300 bg-rose-500/15 ring-1 ring-rose-500/35 rounded-lg px-2.5 py-1.5">{tr('store.tabSoldOut','Sold Out')}</span>
+            : <Btn size="sm" icon="zap" onClick={() => onBuy(p)}>{tr('c.buy','Buy')}</Btn>}
           <button onClick={() => onProduct(p)} className="text-xs text-white/80 hover:text-white inline-flex items-center gap-1 transition">{tr('home.view','View')} <Icon name="chevron-right" size={13} /></button>
           <div className="ml-auto flex items-center gap-2">
             <button aria-label="prev" onClick={() => setIdx(i => (i - 1 + n) % n)} className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 ring-1 ring-white/15 text-white flex items-center justify-center transition"><Icon name="chevron-left" size={14} /></button>
