@@ -22,11 +22,11 @@ transaction, not a fixture or a testnet run — click through and check it on th
 
 | Flow | Transaction | What it proves |
 |---|---|---|
-| **Buy with an external wallet** (Rabby) | [`0xb35c3fac…0ea5c`](https://arc.etherscan.io/tx/0xb35c3fac051f5611ee3c06b117f79a9e7dd8c11563c22b8695f4201740e0ea5c) | The buyer signs an **EIP-2612 permit** (no on-chain tx, no gas from their side); the operator relays `createOrderFor` into `MarketEscrow` and **0.102 USDC** (0.10 item + 0.002 fee) is locked against the order. |
-| **Send from the dashboard** (Circle UCW) | [`0x83d285c8…3a90e`](https://arc.etherscan.io/tx/0x83d285c8522f5afe17023047216f43ebe542212a96303f5670c1601d2b13a90e) | An email-OTP **user-controlled wallet** (`0x655d…994d`) sends **0.144 USDC** to an external address after a PIN challenge. Funds move from the user's own wallet — no platform key can move them. |
+| **Buy with an external wallet** (Rabby) | [`0xb35c3fac…0ea5c`](https://explorer.arc.io/tx/0xb35c3fac051f5611ee3c06b117f79a9e7dd8c11563c22b8695f4201740e0ea5c) | The buyer signs an **EIP-2612 permit** (no on-chain tx, no gas from their side); the operator relays `createOrderFor` into `MarketEscrow` and **0.102 USDC** (0.10 item + 0.002 fee) is locked against the order. |
+| **Send from the dashboard** (Circle UCW) | [`0x83d285c8…3a90e`](https://explorer.arc.io/tx/0x83d285c8522f5afe17023047216f43ebe542212a96303f5670c1601d2b13a90e) | An email-OTP **user-controlled wallet** (`0x655d…994d`) sends **0.144 USDC** to an external address after a PIN challenge. Funds move from the user's own wallet — no platform key can move them. |
 
 Settled on Arc mainnet — escrow
-[`0xfe76c6…9d28`](https://arc.etherscan.io/address/0xfe76c63289dd8b5693277df261e4938bd8779d28),
+[`0xfe76c6…9d28`](https://explorer.arc.io/address/0xfe76c63289dd8b5693277df261e4938bd8779d28),
 USDC `0x3600…0000`. Decoded calldata, logs and re-verification commands:
 [`docs/MAINNET_VERIFICATION.md`](docs/MAINNET_VERIFICATION.md).
 
@@ -60,21 +60,18 @@ No base fee, no separate gas charge to the buyer.
 
 ### The escrow lifecycle
 
-```
-                    ┌─────────────────────────────────────────┐
-   WAITING ────────▶│ ESCROW                                  │
- (order placed,     │  buyer funds locked                     │
-  nothing held yet) │  seller collateral locked               │
-                    └──────┬───────────────────────┬──────────┘
-                           │ seller: markDelivered │ either party: flagDispute
-                           ▼                       ▼
-                     (confirm clock)           DISPUTED ──▶ admin arbitrates:
-                           │                                release / refund /
-        buyer: confirmEscrow│                               refundEscrowWithSlash
-                           ▼                       ▼
-                      COMPLETED               COMPLETED / CANCELLED
-                       (released)               (refunded)
-```
+![Escrow lifecycle](docs/assets/escrow-lifecycle-light.png)
+
+| From | Trigger | To | Who can call it |
+|---|---|---|---|
+| `WAITING` | buyer funds the order | `ESCROW` | buyer (or relay operator, with a signed permit) |
+| `ESCROW` | seller marks delivered | `DELIVERED` | seller |
+| `DELIVERED` | buyer confirms | `COMPLETED` — funds released to seller | buyer |
+| `DELIVERED` | confirmation deadline passes | `COMPLETED` — seller paid | **anyone** (`releaseEscrowAfterTimeout`) |
+| `ESCROW` | delivery deadline passes | `CANCELLED` — buyer refunded | **anyone** (`refundEscrowAfterTimeout`) |
+| `ESCROW` / `DELIVERED` | either party flags a problem | `DISPUTED` | buyer or seller |
+| `DISPUTED` | admin arbitrates | `RELEASED` / `REFUNDED` / `SLASHED` | platform admin (arbitrator only) |
+| `DISPUTED` | 30 days without a ruling | `CANCELLED` — buyer wins by default | **anyone** |
 
 **Two independent clocks, so there is no "whoever calls first wins" race:**
 
@@ -108,7 +105,7 @@ A WL spot ships in minutes; an airdrop-eligible wallet may only pay out months l
 | **Database** | Supabase Postgres, 96 migrations, RLS on every table | Postgres for money math (`bigint` micro-USDC, never float) + Row-Level Security as a second line of defence behind the API. |
 | **Wallets (users)** | Circle **User-Controlled Wallets** — email OTP login, PIN-signed challenges, MPC key shares | Non-custodial for the user, no seed phrase to lose. Neither we nor the user ever holds a full key. |
 | **Wallets (platform)** | Circle **Developer-Controlled Wallets** — treasury, relayer, operator, middleman | Gas sponsorship and relayed settlement so a buyer never needs a second token. |
-| **Chain** | **Arc testnet** (chain id `5042002`), USDC as native gas token | A user's balance *is* their gas. |
+| **Chain** | **Arc mainnet** (chain id `5042`), USDC as native gas token | A user's balance *is* their gas. |
 | **Contract** | Solidity 0.8 + Hardhat + OpenZeppelin — `MarketEscrow.sol` | Escrow, collateral, disputes, timeout escapes. Chain-agnostic; Arc is the deployment target. |
 | **Circle rails** | User-Controlled Wallets, Developer-Controlled Wallets, Smart Contract Platform (event monitors), App Kit (Bridge / Swap / Onramp), CCTP | One identity and one balance model across funding, swapping, bridging and settlement. |
 | **Email** | Brevo HTTP API + typed transactional templates (order, dispute, invoice, welcome, backup reminder) | Port 443 — works on hosts that block SMTP egress. |
@@ -136,7 +133,7 @@ A WL spot ships in minutes; an airdrop-eligible wallet may only pay out months l
        ▼
 ┌──────────────────────┐       ┌──────────────────────┐
 │  MarketEscrow.sol    │──────▶│  Indexer (cron)      │
-│  Arc testnet         │events │  chain → DB reconcile│
+│  Arc mainnet         │events │  chain → DB reconcile│
 └──────────────────────┘       └──────────────────────┘
 ```
 
@@ -452,7 +449,7 @@ lib/
   wl/               WL deal state machine + transitions
   order/            marketplace order state machine
   circle/           Circle UCW provisioning
-  arc/              chain config (5042002, USDC native) + viem client
+  arc/              chain config (5042 mainnet, USDC native) + viem client
   fee.ts            fee model — single source of truth
   money.ts          string → BigInt micro-USDC (no floats)
 public/             the SPA (Babel-in-browser React)
@@ -475,10 +472,10 @@ deployment, so contract changes are exercised before they reach mainnet.)
 | | |
 |---|---|
 | **Network** | Arc mainnet (chain id `5042`) |
-| **MarketEscrow** | [`0xfe76c63289dd8b5693277df261e4938bd8779d28`](https://arc.etherscan.io/address/0xfe76c63289dd8b5693277df261e4938bd8779d28) |
+| **MarketEscrow** | [`0xfe76c63289dd8b5693277df261e4938bd8779d28`](https://explorer.arc.io/address/0xfe76c63289dd8b5693277df261e4938bd8779d28) |
 | **Settlement token** | USDC `0x3600…0000` — also the native gas token |
-| **Explorer** | [arc.etherscan.io](https://arc.etherscan.io) |
-| **Proof of use** | [external-wallet checkout](https://arc.etherscan.io/tx/0xb35c3fac051f5611ee3c06b117f79a9e7dd8c11563c22b8695f4201740e0ea5c) · [UCW dashboard send](https://arc.etherscan.io/tx/0x83d285c8522f5afe17023047216f43ebe542212a96303f5670c1601d2b13a90e) |
+| **Explorer** | [explorer.arc.io](https://explorer.arc.io) |
+| **Proof of use** | [external-wallet checkout](https://explorer.arc.io/tx/0xb35c3fac051f5611ee3c06b117f79a9e7dd8c11563c22b8695f4201740e0ea5c) · [UCW dashboard send](https://explorer.arc.io/tx/0x83d285c8522f5afe17023047216f43ebe542212a96303f5670c1601d2b13a90e) |
 
 You can verify the deployment yourself — the contract exposes its own parameters on-chain:
 

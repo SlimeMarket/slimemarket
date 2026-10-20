@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="560" viewBox="0 0 1280 560">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="560" rx="16" fill="#0B1220" stroke="#1E293B" stroke-width="1"/>
+
+  <text x="60" y="48" font-size="20" font-weight="700" font-family="Segoe UI, Arial, sans-serif"
+        fill="#F1F5F9">Escrow lifecycle</text>
+  <text x="60" y="72" font-size="13" font-family="Segoe UI, Arial, sans-serif"
+        fill="#94A3B8">Two independent clocks. No human ever holds the money.</text>
+
+
+  <g>
+    <rect x="60" y="100" width="200" height="104" rx="14" fill="#111C2E" stroke="#334155" stroke-width="1.5"/>
+    <text x="160.0" y="140" text-anchor="middle" font-size="16" font-weight="700"
+          font-family="Segoe UI, Arial, sans-serif" fill="#CBD5E1" letter-spacing="0.4">WAITING</text>
+    <text x="160.0" y="166" text-anchor="middle" font-size="11.5"
+          font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">order placed</text>
+    <text x="160.0" y="182" text-anchor="middle" font-size="11.5"
+          font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">nothing held yet</text>
+  </g>
+
+  <g>
+    <rect x="380" y="100" width="200" height="104" rx="14" fill="#0E1F3D" stroke="#2563EB" stroke-width="1.5"/>
+    <text x="480.0" y="140" text-anchor="middle" font-size="16" font-weight="700"
+          font-family="Segoe UI, Arial, sans-serif" fill="#93C5FD" letter-spacing="0.4">ESCROW</text>
+    <text x="480.0" y="166" text-anchor="middle" font-size="11.5"
+          font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">buyer funds locked</text>
+    <text x="480.0" y="182" text-anchor="middle" font-size="11.5"
+          font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">seller collateral locked</text>
+  </g>
+
+  <g>
+    <rect x="700" y="100" width="200" height="104" rx="14" fill="#2A1F08" stroke="#B45309" stroke-width="1.5"/>
+    <text x="800.0" y="140" text-anchor="middle" font-size="16" font-weight="700"
+          font-family="Segoe UI, Arial, sans-serif" fill="#FCD34D" letter-spacing="0.4">DELIVERED</text>
+    <text x="800.0" y="166" text-anchor="middle" font-size="11.5"
+          font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">seller marked delivered</text>
+    <text x="800.0" y="182" text-anchor="middle" font-size="11.5"
+          font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">confirm clock starts</text>
+  </g>
+
+  <g>
+    <rect x="1020" y="100" width="200" height="104" rx="14" fill="#06251C" stroke="#047857" stroke-width="1.5"/>
+    <text x="1120.0" y="140" text-anchor="middle" font-size="16" font-weight="700"
+          font-family="Segoe UI, Arial, sans-serif" fill="#6EE7B7" letter-spacing="0.4">COMPLETED</text>
+    <text x="1120.0" y="166" text-anchor="middle" font-size="11.5"
+          font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">funds released to seller</text>
+    <text x="1120.0" y="182" text-anchor="middle" font-size="11.5"
+          font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">or refunded to buyer</text>
+  </g>
+
+
+  <g>
+    <line x1="264" y1="152" x2="372" y2="152" stroke="#475569" stroke-width="1.8" marker-end="url(#ah)"/>
+    <text x="318.0" y="140" text-anchor="middle" font-size="11.5" font-weight="600"
+          font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">buyer pays</text>
+  </g>
+
+  <g>
+    <line x1="584" y1="152" x2="692" y2="152" stroke="#475569" stroke-width="1.8" marker-end="url(#ah)"/>
+    <text x="638.0" y="140" text-anchor="middle" font-size="11.5" font-weight="600"
+          font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">markDelivered</text>
+  </g>
+
+  <g>
+    <line x1="904" y1="152" x2="1012" y2="152" stroke="#475569" stroke-width="1.8" marker-end="url(#ah)"/>
+    <text x="958.0" y="140" text-anchor="middle" font-size="11.5" font-weight="600"
+          font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">confirmEscrow</text>
+  </g>
+
+  <path d="M 480 204 V 352 H 534" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#ah)"/>
+  <path d="M 800 204 V 352 H 746" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#ah)"/>
+  <text x="492" y="266" font-size="11.5" font-weight="600" font-family="Segoe UI, Arial, sans-serif"
+        fill="#94A3B8">flagDispute</text>
+  <text x="788" y="266" text-anchor="end" font-size="11.5" font-weight="600"
+        font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">flagDispute</text>
+
+
+  <g>
+    <rect x="540" y="300" width="200" height="104" rx="14" fill="#2A0F13" stroke="#B91C1C" stroke-width="1.5"/>
+    <text x="640.0" y="340" text-anchor="middle" font-size="16" font-weight="700"
+          font-family="Segoe UI, Arial, sans-serif" fill="#FCA5A5" letter-spacing="0.4">DISPUTED</text>
+    <text x="640.0" y="366" text-anchor="middle" font-size="11.5"
+          font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">either party flags</text>
+    <text x="640.0" y="382" text-anchor="middle" font-size="11.5"
+          font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">admin arbitrates</text>
+  </g>
+
+  <path d="M 640 404 V 438" fill="none" stroke="#475569" stroke-width="1.8"/>
+  <path d="M 465 438 H 815" fill="none" stroke="#475569" stroke-width="1.8"/>
+  <path d="M 465 438 V 454" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#ah)"/>
+  <path d="M 640 438 V 454" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#ah)"/>
+  <path d="M 815 438 V 454" fill="none" stroke="#475569" stroke-width="1.8" marker-end="url(#ah)"/>
+  <text x="654" y="432" font-size="11.5" font-weight="600" font-family="Segoe UI, Arial, sans-serif"
+        fill="#94A3B8">admin ruling</text>
+
+
+  <g>
+    <rect x="390" y="460" width="150" height="42" rx="10" fill="#111C2E" stroke="#334155" stroke-width="1.2"/>
+    <text x="465" y="486" text-anchor="middle" font-size="11" font-weight="700"
+          font-family="Segoe UI, Arial, sans-serif" fill="#CBD5E1" letter-spacing="1.1">RELEASED</text>
+  </g>
+
+  <g>
+    <rect x="565" y="460" width="150" height="42" rx="10" fill="#111C2E" stroke="#334155" stroke-width="1.2"/>
+    <text x="640" y="486" text-anchor="middle" font-size="11" font-weight="700"
+          font-family="Segoe UI, Arial, sans-serif" fill="#CBD5E1" letter-spacing="1.1">REFUNDED</text>
+  </g>
+
+  <g>
+    <rect x="740" y="460" width="150" height="42" rx="10" fill="#111C2E" stroke="#334155" stroke-width="1.2"/>
+    <text x="815" y="486" text-anchor="middle" font-size="11" font-weight="700"
+          font-family="Segoe UI, Arial, sans-serif" fill="#CBD5E1" letter-spacing="1.1">SLASHED</text>
+  </g>
+
+  <text x="60" y="536" font-size="11.5" font-family="Segoe UI, Arial, sans-serif" fill="#94A3B8">
+    Timeouts are permissionless: once a deadline passes, anyone can settle the deal — a vanished operator cannot freeze funds.
+  </text>
+</svg>

@@ -12,16 +12,32 @@ bukan simulasi). Setiap baris di bawah bisa diverifikasi ulang dari chain, tanpa
 | RPC | `https://rpc.mainnet.arc.io` |
 | Escrow contract | `0xfe76c63289dd8b5693277df261e4938bd8779d28` |
 | USDC | `0x3600000000000000000000000000000000000000` (6 decimals) |
-| Explorer | https://arc.etherscan.io |
+| Explorer | https://explorer.arc.io |
 
 ## Verified transactions
+
+### 0. Empat order marketplace yang settled end-to-end (re-verified 2026-10-20)
+
+Bukan cuma "checkout berhasil" — tiap order di bawah punya **dua** tx: satu saat buyer mendanai
+escrow (`OrderCreated`), satu saat dana dilepas ke seller (`OrderReleased`). Semua `status = 0x1`.
+
+| Order (DB) | Fund tx (`OrderCreated`) | Release tx (`OrderReleased`) | Amount in → out | Block (fund → release) |
+|---|---|---|---|---|
+| `1564e213-…b7e9fe` | [`0x3cee387b…c0547e`](https://explorer.arc.io/tx/0x3cee387bd946875067a0418b614b0437a833ad2d6832fa751b39008e1ec0547e) | [`0x6f4539e6…5830cad`](https://explorer.arc.io/tx/0x6f4539e614099affa33a327c84c6132f2019ed62ab6dd46c8c6b3f35f5830cad) | `0.051` → `0.049` | 26092238 → 26092568 |
+| `3b7911ec-…0c08df` | [`0xb35c3fac…0ea5c`](https://explorer.arc.io/tx/0xb35c3fac051f5611ee3c06b117f79a9e7dd8c11563c22b8695f4201740e0ea5c) | [`0x99546836…34b877`](https://explorer.arc.io/tx/0x995468369786f086f8052dff04c738057700c40df8a9543495fe42cd1a34b877) | `0.102` → `0.098` | 26372139 → 26372357 |
+| `555d2044-…1e8dc7` | [`0x07a4ed6a…5c6b4d`](https://explorer.arc.io/tx/0x07a4ed6a1094bbf162b8f380a28405c79b38aa531c0c77a4e3e74144425c6b4d) | [`0x9ee4f88c…b7fb0eb4`](https://explorer.arc.io/tx/0x9ee4f88ced1c4c13bcfd73a48147cd63540716dc6a7e859f3291e836b7fb0eb4) | `0.0714` → `0.0686` | 26541444 → 26542124 |
+| `96dbc304-…21364b` | [`0x2c1b7c39…9774607`](https://explorer.arc.io/tx/0x2c1b7c396338592b1c73ccc20f0eadee42be9e3339bf89b44d29ad6189774607) | [`0x9387cbfe…4b8b30`](https://explorer.arc.io/tx/0x9387cbfec1d60e74b9f13e8c7f1c66015d18ec829f45df6cb1f9aeaa3f4b8b30) | `0.1428` → `0.1372` | 26588842 → 26589443 |
+
+Selisih in/out adalah fee platform + fee buyer (lihat `lib/fee.ts`), bukan dana hilang:
+`0.051 − 0.049 = 0.002`, `0.102 − 0.098 = 0.004`, `0.0714 − 0.0686 = 0.0028`,
+`0.1428 − 0.1372 = 0.0056`. Total USDC yang bergerak lewat escrow: **0.72 USDC**.
 
 ### 1. Checkout dengan external wallet (EIP-2612 permit, gasless)
 
 | Field | Nilai |
 |---|---|
 | Tx hash | `0xb35c3fac051f5611ee3c06b117f79a9e7dd8c11563c22b8695f4201740e0ea5c` |
-| Explorer | https://arc.etherscan.io/tx/0xb35c3fac051f5611ee3c06b117f79a9e7dd8c11563c22b8695f4201740e0ea5c |
+| Explorer | https://explorer.arc.io/tx/0xb35c3fac051f5611ee3c06b117f79a9e7dd8c11563c22b8695f4201740e0ea5c |
 | Block | `26372139` (`0x192682b`) |
 | Status | `success` (`0x1`) |
 | To | `0xfe76c63289dd8b5693277df261e4938bd8779d28` (MarketEscrow) |
@@ -62,7 +78,7 @@ Log yang dihasilkan:
 | Field | Nilai |
 |---|---|
 | Tx hash | `0x83d285c8522f5afe17023047216f43ebe542212a96303f5670c1601d2b13a90e` |
-| Explorer | https://arc.etherscan.io/tx/0x83d285c8522f5afe17023047216f43ebe542212a96303f5670c1601d2b13a90e |
+| Explorer | https://explorer.arc.io/tx/0x83d285c8522f5afe17023047216f43ebe542212a96303f5670c1601d2b13a90e |
 | Block | `26396070` (`0x192c5a6`) |
 | Status | `success` (`0x1`) |
 | From | `0x655d9ae2adec748cd7269d8dec6d85afbc86994d` (UCW wallet milik user) |

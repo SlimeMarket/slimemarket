@@ -99,6 +99,7 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION public.auto_advance_instant_order(uuid, uuid) FROM anon, authenticated, public;
 GRANT EXECUTE ON FUNCTION public.auto_advance_instant_order(uuid, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.auto_advance_instant_order(uuid, uuid) TO postgres;
 
