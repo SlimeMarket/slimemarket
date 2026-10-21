@@ -8,6 +8,7 @@
  */
 
 import { parseUsdc } from "@/lib/money";
+import { isOnline } from "@/lib/presence/window";
 
 const ONE_USDC = 1_000_000n;
 
@@ -63,7 +64,7 @@ export interface ProductApiRow {
   joined: string;
   priceLow: number;
   priceHigh: number;
-  seller: { name: string; rating: number; avatar: string };
+  seller: { name: string; rating: number; avatar: string; online: boolean; lastSeenAt: string | null };
 }
 
 export function mapProduct(row: {
@@ -89,6 +90,7 @@ export function mapProduct(row: {
   store_rating?: number | string | null;
   store_avatar?: string | null;
   store_avatar_url?: string | null;
+  store_last_seen?: string | null;
   joined?: string | null;
   warranty?: string | null;
 }): ProductApiRow {
@@ -133,11 +135,37 @@ export function mapProduct(row: {
       name: row.store_name ?? "Unknown",
       rating: Number(row.store_rating ?? 0),
       avatar: row.store_avatar_url || (row.store_avatar ?? "from-slate-600 to-slate-800"),
+      // Presence for the card's dot. Same derivation as the store page, so a
+      // seller cannot be "online" on one surface and offline on the other.
+      online: isOnline(row.store_last_seen ?? null),
+      lastSeenAt: row.store_last_seen ?? null,
     },
   };
 }
 
 /** Store row → frontend shape (rename *_gradient → bare avatar/banner). */
+/** Aggregates the store header shows. All money already decimal USDC. */
+export interface StoreStats {
+  /** Orders that reached DONE (money actually settled). */
+  completedOrders: number;
+  /** Mean order value over completed orders, decimal USDC. 0 when none. */
+  avgOrderUsdc: number;
+  /** Disputes still waiting for a ruling. */
+  openDisputes: number;
+  /** Mean time from dispute opened → resolved, in minutes. null when none resolved. */
+  avgDisputeMinutes: number | null;
+  /** Live (non-archived) listings, so the header can show catalogue depth. */
+  products: number;
+}
+
+export const EMPTY_STORE_STATS: StoreStats = {
+  completedOrders: 0,
+  avgOrderUsdc: 0,
+  openDisputes: 0,
+  avgDisputeMinutes: null,
+  products: 0,
+};
+
 export interface StoreApiRow {
   name: string;
   handle: string | null;
@@ -147,8 +175,11 @@ export interface StoreApiRow {
   rating: number;
   ratingCount: number;
   online: boolean;
+  /** ISO timestamp of the seller's last heartbeat, null when never seen. */
+  lastSeenAt: string | null;
   joined: string;
   message: string | null;
+  stats: StoreStats;
 }
 
 export function mapStore(row: {
@@ -163,7 +194,10 @@ export function mapStore(row: {
   rating_count: number;
   joined_at: string;
   message: string | null;
+  last_seen_at?: string | null;
+  stats?: Partial<StoreStats> | null;
 }): StoreApiRow {
+  const lastSeenAt = row.last_seen_at ?? null;
   return {
     name: row.name,
     handle: row.handle,
@@ -173,13 +207,17 @@ export function mapStore(row: {
     banner: row.banner_url || row.banner_gradient,
     rating: Number(row.rating),
     ratingCount: row.rating_count,
-    online: true, // no presence tracking in M2; assume online for demo
+    // Derived, not assumed: a store with no heartbeat in the last two minutes
+    // is offline. See lib/presence/window.ts.
+    online: isOnline(lastSeenAt),
+    lastSeenAt,
     joined: new Date(row.joined_at).toLocaleDateString("en-US", {
       day: "2-digit",
       month: "short",
       year: "numeric",
     }),
     message: row.message,
+    stats: { ...EMPTY_STORE_STATS, ...(row.stats ?? {}) },
   };
 }
 

@@ -20,7 +20,7 @@ const PRODUCT_SELECT = `
   gradient, glyph, img_url, status, stock_items, stock, sold, views, hot, est,
   warranty,
   variant_stocks:product_stock_items(variant_label, status),
-  stores!inner ( name, rating, avatar_gradient, avatar_url, owner_user_id, users:owner_user_id ( name, avatar_url, username ) )
+  stores!inner ( name, rating, avatar_gradient, avatar_url, owner_user_id, users:owner_user_id ( name, avatar_url, username, last_seen_at ) )
 `;
 
 /** Flatten the nested stores join into the mapProduct input shape. */
@@ -59,6 +59,8 @@ function flatten(row: Record<string, unknown>): Parameters<typeof mapProduct>[0]
     store_avatar: store.avatar_gradient as string | null,
     store_avatar_url: (store.users as { avatar_url?: string | null } | null)?.avatar_url ?? (store.avatar_url as string | null) ?? null,
     warranty: row.warranty as string | null,
+    store_last_seen:
+      (store.users as { last_seen_at?: string | null } | null)?.last_seen_at ?? null,
   };
 }
 

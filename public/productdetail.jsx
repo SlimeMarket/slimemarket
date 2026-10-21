@@ -16,26 +16,37 @@ function ProductArt({ product, big }) {
   const seller = product.seller || {};
   return (
     <div className={`group relative overflow-hidden rounded-2xl ring-1 ring-arc-border bg-gradient-to-br ${product.gradient || 'from-arc-surface2 to-arc-surface'} grid-noise transition-all duration-300 hover:ring-arc-primary/30 hover:shadow-glow ${big ? 'aspect-[4/3]' : 'h-44'}`}>
-      {product.img && <img src={product.img} alt={product.title || ''} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />}
-      {product.img && <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-black/40"></div>}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2">
-        <Avatar gradient={isImgUrl(seller.avatar) ? '' : (seller.avatar || 'from-slate-600 to-slate-800')} img={isImgUrl(seller.avatar) ? seller.avatar : null} name={seller.name} size={22} />
-        <span className="text-[11px] font-semibold text-white/90">{seller.name}</span>
-      </div>
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-        {!product.img && <div className="text-7xl blob-float" style={{ textShadow: '0 6px 30px rgba(0,0,0,.5)' }}>{product.glyph}</div>}
-        <div className="text-center">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-white/60">{tr('pd.priceFrom','From')}</div>
-          <Usdc value={product.priceLow} className="text-4xl font-extrabold text-white" size="text-sm" />
-        </div>
-      </div>
-      <div className="absolute bottom-4 inset-x-4 flex items-center justify-center gap-2 flex-wrap">
-        {[tr('pd.tag.safe','100% Safe'), product.delivery === 'instant' ? tr('pd.tag.instant','Instant Delivery') : tr('pd.tag.fast','Fast Process'), tr('pd.tag.escrow','Escrow Protected')].map(t => (
-          <span key={t} className="inline-flex items-center gap-1 text-[10px] font-medium text-white/90 bg-black/30 ring-1 ring-white/15 rounded-md px-2 py-1 backdrop-blur-sm">
-            <Icon name="shield-check" size={11} className="text-emerald-300" /> {t}
-          </span>
-        ))}
-      </div>
+      {product.img ? (
+        // Real product art uploaded by the seller — show it full-bleed with no
+        // overlays. The banner fallback (seller pill / FROM price / trust pills)
+        // exists for products without an image; when a real picture is present,
+        // those overlays just cover the actual art and clutter the page.
+        <img src={product.img} alt={product.title || ''} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
+      ) : (
+        // Fallback banner: no image uploaded. Render the promo-style banner so
+        // the card still has visual weight (emoji, FROM price, trust pills,
+        // seller pill on top).
+        <>
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2">
+            <Avatar gradient={isImgUrl(seller.avatar) ? '' : (seller.avatar || 'from-slate-600 to-slate-800')} img={isImgUrl(seller.avatar) ? seller.avatar : null} name={seller.name} size={22} />
+            <span className="text-[11px] font-semibold text-white/90">{seller.name}</span>
+          </div>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+            <div className="text-7xl blob-float" style={{ textShadow: '0 6px 30px rgba(0,0,0,.5)' }}>{product.glyph}</div>
+            <div className="text-center">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-white/60">{tr('pd.priceFrom','From')}</div>
+              <Usdc value={product.priceLow} className="text-4xl font-extrabold text-white" size="text-sm" />
+            </div>
+          </div>
+          <div className="absolute bottom-4 inset-x-4 flex items-center justify-center gap-2 flex-wrap">
+            {[tr('pd.tag.safe','100% Safe'), product.delivery === 'instant' ? tr('pd.tag.instant','Instant Delivery') : tr('pd.tag.fast','Fast Process'), tr('pd.tag.escrow','Escrow Protected')].map(t => (
+              <span key={t} className="inline-flex items-center gap-1 text-[10px] font-medium text-white/90 bg-black/30 ring-1 ring-white/15 rounded-md px-2 py-1 backdrop-blur-sm">
+                <Icon name="shield-check" size={11} className="text-emerald-300" /> {t}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -160,12 +171,75 @@ function ProductDetail({ product, onBuy, onStore, onBack, onChat }) {
       <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-arc-muted hover:text-arc-text mb-4 transition"><Icon name="arrow-left" size={16} /> {tr('c.back','Back')}</button>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* left: art */}
-        <div>
+        {/* LEFT column: art on top, Reviews directly underneath (no extra scroll block). */}
+        <div className="flex flex-col gap-6">
           <ProductArt product={product} big />
+
+          {/* reviews — verified-purchase only (a review is written against an order,
+              so every entry here maps to a completed purchase of this product). */}
+          <Card className="p-5 bg-gradient-to-br from-arc-surface to-arc-surface2/50">
+            <div className="flex items-center gap-2 text-sm font-semibold text-arc-text mb-4">
+              <Icon name="star" size={16} className="text-amber-400" /> {tr('pd.reviews','Reviews')}
+              {reviewSummary && reviewSummary.count > 0 && <span className="text-arc-faint font-normal">({reviewSummary.count})</span>}
+            </div>
+
+            {reviews === null ? (
+              <div className="space-y-3">
+                {[0, 1].map(i => <div key={i} className="h-16 rounded-xl animate-pulse bg-arc-surface2/40"></div>)}
+              </div>
+            ) : reviews.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-arc-surface2/60 ring-1 ring-arc-border flex items-center justify-center"><Icon name="star" size={26} className="text-arc-faint" /></div>
+                <div className="text-sm font-semibold text-arc-text">{tr('pd.noReviewsYet','No reviews yet.')}</div>
+                <div className="text-xs text-arc-faint">{tr('pd.beFirstReview','Be the first to review this product')}</div>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-col sm:flex-row items-center gap-5 rounded-2xl ring-1 ring-arc-border bg-arc-bg/40 px-5 py-4 mb-5">
+                  <div className="text-center shrink-0">
+                    <div className="text-4xl font-extrabold text-arc-text tabular-nums">{reviewSummary.avg.toFixed(1)}</div>
+                    <div className="mt-1 flex justify-center"><Stars value={reviewSummary.avg} size={13} /></div>
+                    <div className="text-[11px] text-arc-faint mt-1">{reviewSummary.count} {tr('pd.reviews','reviews')}</div>
+                  </div>
+                  <div className="flex-1 w-full space-y-1.5">
+                    {[5, 4, 3, 2, 1].map(star => {
+                      const n = (reviewSummary.dist && reviewSummary.dist[star - 1]) || 0;
+                      const pct = reviewSummary.count ? Math.round((n / reviewSummary.count) * 100) : 0;
+                      return (
+                        <div key={star} className="flex items-center gap-2">
+                          <span className="text-[11px] text-arc-faint w-6 shrink-0 tabular-nums">{star}★</span>
+                          <div className="flex-1 h-2 rounded-full bg-arc-surface2 overflow-hidden">
+                            <div className="h-full rounded-full bg-amber-400/80 transition-all duration-300" style={{ width: pct + '%' }}></div>
+                          </div>
+                          <span className="text-[11px] text-arc-faint w-8 text-right shrink-0 tabular-nums">{n}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {reviews.map((r, i) => (
+                    <div key={i} className="rounded-xl ring-1 ring-arc-border bg-arc-surface/50 p-4 transition-all duration-200 hover:ring-arc-borderlt">
+                      <div className="flex items-center gap-3">
+                        <Avatar gradient={r.avatar} name={r.user} size={36} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-arc-text inline-flex items-center gap-1.5">
+                            {typeof censorName === 'function' ? censorName(r.user) : r.user}
+                            <Icon name="shield-check" size={12} className="text-emerald-500/60" />
+                          </div>
+                          <div className="flex items-center gap-2"><Stars value={r.rating} size={11} /><span className="text-[11px] text-arc-faint">{r.date}</span></div>
+                        </div>
+                      </div>
+                      {r.text && <p className="text-sm text-arc-text mt-2.5 leading-relaxed" style={{ textWrap: 'pretty' }}>{r.text}</p>}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </Card>
         </div>
 
-        {/* right: info */}
+        {/* RIGHT column: product info, seller block, Buy Now, then Description (compact — Read More when long). */}
         <div className="flex flex-col">
           <div className="flex items-center gap-2 mb-2">
             <PixBadge color="blue">{String(product.cat || 'ITEM').toUpperCase()}</PixBadge>
@@ -237,80 +311,28 @@ function ProductDetail({ product, onBuy, onStore, onBack, onChat }) {
             <Btn variant="outline" size="lg" icon="message-circle" className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-glow" onClick={() => onChat(seller.name)}>{tr('pd.chat','Chat')}</Btn>
           </div>
           <button onClick={() => setReportOpen(true)} className="mt-3 text-xs text-arc-faint hover:text-rose-400 transition inline-flex items-center gap-1"><Icon name="flag" size={12} /> Report Product</button>
+
+          {/* description — sits directly under Buy Now for in-place reading. Read More
+              triggers only when the seller actually wrote something long. Threshold
+              260 chars picks up anything beyond a couple of sentences. */}
+          <Card className="mt-4 p-5 bg-gradient-to-br from-arc-surface to-arc-surface2/50 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-glow">
+            <div className="flex items-center gap-2 text-sm font-semibold text-arc-text mb-3"><Icon name="file-text" size={16} className="text-arc-accent" /> {tr('pd.description','Description')}</div>
+            {desc ? (
+              <>
+                <pre className="text-sm text-arc-text leading-relaxed whitespace-pre-wrap font-sans" style={{ textWrap: 'pretty' }}>{shown}{!expand && desc.length > 260 ? '…' : ''}</pre>
+                {desc.length > 260 && (
+                  <button onClick={() => setExpand(e => !e)} className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-arc-accent hover:brightness-125 transition">
+                    {expand ? tr('pd.showLess','Show less') : tr('pd.readMore','Read more')}
+                    <Icon name={expand ? 'chevron-up' : 'chevron-down'} size={14} />
+                  </button>
+                )}
+              </>
+            ) : (
+              <div className="text-sm text-arc-faint italic">{tr('pd.noDescription','No description provided by the seller.')}</div>
+            )}
+          </Card>
         </div>
       </div>
-
-      {/* description */}
-      <Card className="mt-6 p-5 max-w-3xl bg-gradient-to-br from-arc-surface to-arc-surface2/50 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-glow">
-        <div className="flex items-center gap-2 text-sm font-semibold text-arc-text mb-3"><Icon name="file-text" size={16} className="text-arc-accent" /> {tr('pd.description','Description')}</div>
-        <pre className="text-sm text-arc-text leading-relaxed whitespace-pre-wrap font-sans" style={{ textWrap: 'pretty' }}>{shown}{!expand && desc.length > 260 ? '…' : ''}</pre>
-        {desc.length > 260 && (
-          <button onClick={() => setExpand(e => !e)} className="mt-2 text-sm text-arc-accent hover:brightness-125 transition">{expand ? tr('pd.showLess','Show less') : tr('pd.readMore','Read more')}</button>
-        )}
-      </Card>
-
-      {/* reviews — verified-purchase only (a review is written against an order,
-          so every entry here maps to a completed purchase of this product). */}
-      <Card className="mt-6 p-5 max-w-3xl bg-gradient-to-br from-arc-surface to-arc-surface2/50">
-        <div className="flex items-center gap-2 text-sm font-semibold text-arc-text mb-4">
-          <Icon name="star" size={16} className="text-amber-400" /> {tr('pd.reviews','Reviews')}
-          {reviewSummary && reviewSummary.count > 0 && <span className="text-arc-faint font-normal">({reviewSummary.count})</span>}
-        </div>
-
-        {reviews === null ? (
-          <div className="space-y-3">
-            {[0, 1].map(i => <div key={i} className="h-16 rounded-xl animate-pulse bg-arc-surface2/40"></div>)}
-          </div>
-        ) : reviews.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-arc-surface2/60 ring-1 ring-arc-border flex items-center justify-center"><Icon name="star" size={26} className="text-arc-faint" /></div>
-            <div className="text-sm font-semibold text-arc-text">{tr('pd.noReviewsYet','No reviews yet.')}</div>
-            <div className="text-xs text-arc-faint">{tr('pd.beFirstReview','Be the first to review this product')}</div>
-          </div>
-        ) : (
-          <>
-            <div className="flex flex-col sm:flex-row items-center gap-5 rounded-2xl ring-1 ring-arc-border bg-arc-bg/40 px-5 py-4 mb-5">
-              <div className="text-center shrink-0">
-                <div className="text-4xl font-extrabold text-arc-text tabular-nums">{reviewSummary.avg.toFixed(1)}</div>
-                <div className="mt-1 flex justify-center"><Stars value={reviewSummary.avg} size={13} /></div>
-                <div className="text-[11px] text-arc-faint mt-1">{reviewSummary.count} {tr('pd.reviews','reviews')}</div>
-              </div>
-              <div className="flex-1 w-full space-y-1.5">
-                {[5, 4, 3, 2, 1].map(star => {
-                  const n = (reviewSummary.dist && reviewSummary.dist[star - 1]) || 0;
-                  const pct = reviewSummary.count ? Math.round((n / reviewSummary.count) * 100) : 0;
-                  return (
-                    <div key={star} className="flex items-center gap-2">
-                      <span className="text-[11px] text-arc-faint w-6 shrink-0 tabular-nums">{star}★</span>
-                      <div className="flex-1 h-2 rounded-full bg-arc-surface2 overflow-hidden">
-                        <div className="h-full rounded-full bg-amber-400/80 transition-all duration-300" style={{ width: pct + '%' }}></div>
-                      </div>
-                      <span className="text-[11px] text-arc-faint w-8 text-right shrink-0 tabular-nums">{n}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="space-y-3">
-              {reviews.map((r, i) => (
-                <div key={i} className="rounded-xl ring-1 ring-arc-border bg-arc-surface/50 p-4 transition-all duration-200 hover:ring-arc-borderlt">
-                  <div className="flex items-center gap-3">
-                    <Avatar gradient={r.avatar} name={r.user} size={36} />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-arc-text inline-flex items-center gap-1.5">
-                        {typeof censorName === 'function' ? censorName(r.user) : r.user}
-                        <Icon name="shield-check" size={12} className="text-emerald-500/60" />
-                      </div>
-                      <div className="flex items-center gap-2"><Stars value={r.rating} size={11} /><span className="text-[11px] text-arc-faint">{r.date}</span></div>
-                    </div>
-                  </div>
-                  {r.text && <p className="text-sm text-arc-text mt-2.5 leading-relaxed" style={{ textWrap: 'pretty' }}>{r.text}</p>}
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </Card>
 
       {/* Report Modal */}
       <Modal open={reportOpen} onClose={() => setReportOpen(false)} width="max-w-md">
@@ -363,42 +385,99 @@ function StorePage({ storeName, reviews, onProduct, onBuy, onChat, onBack }) {
       </div>
     </div>
   );
-  const allProducts = typeof storeProducts === 'function' ? storeProducts(storeName) : [];
+  // Use the RESOLVED name, not the route param: a store opened as /store/TWME
+  // (uid) would otherwise match zero products, because every product carries
+  // seller.name === "rimuru".
+  const allProducts = typeof storeProducts === 'function' ? storeProducts(s.name || storeName) : [];
   // C3 — sold-out items move to their own tab; the Products tab shows in-stock only.
   const inStock = allProducts.filter(p => p.status !== 'soldout');
   const soldOut = allProducts.filter(p => p.status === 'soldout');
   const products = inStock.filter(p => (p.title || '').toLowerCase().includes(q.toLowerCase()));
   const soldOutFiltered = soldOut.filter(p => (p.title || '').toLowerCase().includes(q.toLowerCase()));
+  // Header aggregates come from GET /api/stores/:uid. A derived store (no
+  // `stores` row) or a failed stats query leaves this empty — render zeros, not
+  // NaN, and never hide the strip (a new store showing 0 completed is honest).
+  const stats = s.stats || {};
 
   return (
     <div className="anim-view">
       <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-arc-muted hover:text-arc-text mb-4 transition"><Icon name="arrow-left" size={16} /> {tr('c.back','Back')}</button>
 
-      {/* banner header */}
-      <div className="relative overflow-hidden rounded-2xl ring-1 ring-arc-border bg-gradient-to-br from-arc-surface to-arc-surface2/50 transition-all duration-300 hover:shadow-glow">
-        <div className={`h-28 bg-gradient-to-r ${isImgUrl(s.banner) ? '' : (s.banner || 'from-arc-primary/40 to-arc-accent/30')} bg-cover bg-center`} style={isImgUrl(s.banner) ? { backgroundImage: `url(${s.banner})` } : {}}></div>
-        <div className="px-5 pb-5 -mt-9 bg-arc-surface/70 backdrop-blur">
-          <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-            <div className="relative">
-              <Avatar gradient={isImgUrl(s.avatar) ? '' : s.avatar} img={isImgUrl(s.avatar) ? s.avatar : null} name={s.name} size={72} ring />
-              {s.online && <span className="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 ring-2 ring-arc-surface"></span>}
-            </div>
-            <div className="flex-1 pb-1">
-              <h1 className="text-xl font-bold text-white">{s.name}</h1>
-              <div className="flex items-center gap-2 mt-1 text-sm text-arc-muted flex-wrap">
-                <span>@{String(s.handle || s.name || '').replace(/^@/, '')}</span>
-                <span className="text-arc-faint">·</span>
+      {/* Store header — "ledger strip".
+          Deliberately not a hero banner: the seller's numbers are the thing a
+          buyer came to check, so they get the visual weight instead of a 112px
+          gradient. A 2px accent rule at the top replaces the banner, which also
+          removes the empty band that appeared whenever a store had no banner
+          image uploaded. */}
+      <div className="relative overflow-hidden rounded-2xl ring-1 ring-arc-border bg-arc-surface">
+        <div className="h-[2px] bg-gradient-to-r from-arc-primary via-arc-accent to-emerald-400" />
+        <div className="p-5 sm:p-6">
+          <div className="flex items-start gap-4 sm:gap-5">
+            <Avatar gradient={isImgUrl(s.avatar) ? '' : s.avatar} img={isImgUrl(s.avatar) ? s.avatar : null} name={s.name} size={64} ring />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h1 className="text-2xl sm:text-[27px] font-bold tracking-tight text-arc-text leading-tight">{s.name}</h1>
+                {Number(s.ratingCount) > 0 && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-300 bg-amber-400/10 ring-1 ring-amber-400/25 rounded-md px-1.5 py-0.5 tabular-nums">
+                    <Icon name="star" size={10} className="fill-amber-300" stroke={0} />
+                    {Number(s.rating).toFixed(1)}
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 flex items-center gap-x-2.5 gap-y-1.5 flex-wrap text-[11px] font-mono uppercase tracking-wider text-arc-faint">
+                <span className="text-arc-muted">@{String(s.handle || s.name || '').replace(/^@/, '')}</span>
+                <span className="text-arc-border">/</span>
                 <CopyChip value={s.uid} />
-                <span className="text-[10px] font-medium text-arc-faint bg-arc-surface2 ring-1 ring-arc-border rounded px-1.5 py-0.5">{tr('store.profileStorefront','Profile = storefront')}</span>
+                {/* Separator before "since" is desktop-only: when the meta line
+                    wraps on a phone, a leading slash reads as a typo. */}
+                <span className="hidden sm:inline text-arc-border">/</span>
+                <span>{tr('store.since', 'since')} {s.joined || '—'}</span>
               </div>
             </div>
-            <Btn variant="primary" icon="message-circle" onClick={() => onChat(s.name)}>{tr('store.chatSeller','Chat Seller')}</Btn>
+            {/* Desktop: actions sit on the right, level with the name. */}
+            <div className="hidden sm:flex sm:flex-col items-end gap-2 shrink-0">
+              <PresencePill online={!!s.online} lastSeenAt={s.lastSeenAt} />
+              <Btn variant="primary" icon="message-circle" onClick={() => onChat(s.name)}>{tr('store.chatSeller', 'Chat Seller')}</Btn>
+            </div>
           </div>
-          <div className="h-px bg-arc-border my-4"></div>
-          <div className="flex items-center gap-2">
-            <Stars value={s.rating} size={14} />
-            <span className="text-sm font-semibold text-arc-text">{s.rating}</span>
-            <span className="text-xs text-arc-faint">({s.ratingCount} {tr('store.ratings','ratings')})</span>
+
+          {/* Mobile: actions get their own row so the avatar is not stranded
+              alone next to 200px of empty space. */}
+          <div className="mt-4 flex items-center gap-2 sm:hidden">
+            <PresencePill online={!!s.online} lastSeenAt={s.lastSeenAt} />
+            <Btn variant="primary" icon="message-circle" onClick={() => onChat(s.name)} className="ml-auto">{tr('store.chatSeller', 'Chat Seller')}</Btn>
+          </div>
+
+          {/* Stats strip — hairline dividers instead of cards, so five numbers
+              read as one row of facts rather than five competing widgets. */}
+          <div className="mt-5 pt-4 border-t border-arc-border grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-y-4">
+            <StoreMetric
+              label={tr('store.mCompleted', 'Completed')}
+              value={Number(stats.completedOrders || 0).toLocaleString('en-US')}
+              hint={tr('store.mCompletedHint', 'orders settled')}
+            />
+            <StoreMetric
+              label={tr('store.mAvgOrder', 'Avg order')}
+              value={Number(stats.avgOrderUsdc || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              unit="USDC"
+              hint={tr('store.mAvgOrderHint', 'per completed order')}
+            />
+            <StoreMetric
+              label={tr('store.mListings', 'Listings')}
+              value={Number(stats.products || 0).toLocaleString('en-US')}
+              hint={tr('store.mListingsHint', `${inStock.length} in stock`)}
+            />
+            <StoreMetric
+              label={tr('store.mDisputes', 'Open disputes')}
+              value={String(Number(stats.openDisputes || 0))}
+              tone={Number(stats.openDisputes || 0) > 0 ? 'text-rose-300' : undefined}
+              hint={tr('store.mDisputesHint', 'awaiting a ruling')}
+            />
+            <StoreMetric
+              label={tr('store.mDisputeSla', 'Dispute SLA')}
+              value={fmtMinutes(stats.avgDisputeMinutes)}
+              hint={tr('store.mDisputeSlaHint', 'avg time to resolve')}
+            />
           </div>
         </div>
       </div>
@@ -498,6 +577,34 @@ function StorePage({ storeName, reviews, onProduct, onBuy, onChat, onBack }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Minutes → "45m" / "2h 14m" / "3d 4h". null renders an em dash, not "0m":
+ *  "no disputes ever resolved" and "resolved instantly" are different facts. */
+function fmtMinutes(m) {
+  if (m === null || m === undefined || Number.isNaN(Number(m))) return '—';
+  const total = Math.max(0, Math.round(Number(m)));
+  if (total < 60) return total + 'm';
+  const h = Math.floor(total / 60);
+  const rem = total % 60;
+  if (h < 24) return rem ? `${h}h ${rem}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  const rh = h % 24;
+  return rh ? `${d}d ${rh}h` : `${d}d`;
+}
+
+/** One number in the store header strip. */
+function StoreMetric({ label, value, unit, hint, tone }) {
+  return (
+    <div className="px-0 sm:px-4 sm:border-l sm:border-arc-border sm:first:border-l-0 sm:first:pl-0">
+      <div className={`text-[19px] font-semibold tabular-nums leading-none ${tone || 'text-arc-text'}`}>
+        {value}
+        {unit && <span className="ml-1 text-[10px] font-medium text-arc-faint">{unit}</span>}
+      </div>
+      <div className="mt-1.5 text-[9.5px] font-medium uppercase tracking-[0.16em] text-arc-faint">{label}</div>
+      {hint && <div className="mt-0.5 text-[10px] text-arc-faint/70 leading-snug">{hint}</div>}
     </div>
   );
 }

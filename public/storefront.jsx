@@ -59,6 +59,14 @@ function ProductCard({ product, onBuy, onOpen, index }) {
         <div className="flex items-center gap-2 text-[11px] text-arc-muted">
           <Avatar gradient={isImgUrl(product.seller?.avatar) ? '' : (product.seller?.avatar || 'from-slate-600 to-slate-800')} img={isImgUrl(product.seller?.avatar) ? product.seller.avatar : null} name={product.seller?.name} size={18} />
           <span className="truncate">{product.seller?.name}</span>
+          {/* Only the positive state gets a dot. A grey dot on every offline
+              seller would be noise on a grid of 24 cards — absence is the
+              signal here, and the store page carries the full "Active 2h ago". */}
+          {product.seller?.online && (
+            <span title={tr('presence.online', 'Online now')} className="shrink-0">
+              <PresenceDot online size={6} ring={false} />
+            </span>
+          )}
           <span className="inline-flex items-center gap-0.5 ml-auto text-amber-400"><Icon name="star" size={11} className="fill-amber-400" stroke={0} />{product.seller?.rating}</span>
         </div>
         <h3 onClick={onOpen} className={`font-semibold text-[15px] leading-snug text-arc-text line-clamp-2 ${onOpen ? 'cursor-pointer hover:text-arc-accent transition-colors' : ''}`} style={{ textWrap: 'pretty' }}>{product.title}</h3>

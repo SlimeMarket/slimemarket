@@ -1,6 +1,7 @@
 import { supabaseAdminClient } from "@/lib/supabase/admin-client";
-import { mapStore, mapReview, type StoreApiRow, type ReviewApiRow } from "./mappers";
+import { mapStore, mapReview, microToDecimal, type StoreApiRow, type ReviewApiRow, type StoreStats } from "./mappers";
 import { deriveStoreIdentity } from "./virtual-store";
+import { isOnline } from "@/lib/presence/window";
 
 /**
  * Store + review queries. Maps DB columns to the frontend field names
@@ -32,16 +33,106 @@ export async function getStoreByUid(uid: string): Promise<StoreApiRow | null> {
   const { data, error } = await admin
     .from("stores")
     .select(
-      "name, handle, uid, avatar_gradient, banner_gradient, avatar_url, banner_url, rating, rating_count, joined_at, message",
+      "id, owner_user_id, name, handle, uid, avatar_gradient, banner_gradient, avatar_url, banner_url, rating, rating_count, joined_at, message",
     )
     .or(`uid.eq.${id},name.eq.${id},handle.eq.${id}`)
     .limit(1)
     .maybeSingle();
   if (error) throw new Error(`getStoreByUid failed: ${error.message}`);
-  if (data) return mapStore(data);
+  if (data) {
+    const store = mapStore(data);
+    // Presence + the header's aggregate numbers. Both are decoration for the
+    // page, so they are best-effort: a failure leaves the store readable with
+    // zeros rather than 500-ing the whole page.
+    const extras = await loadStoreExtras(
+      data.id as string,
+      (data.owner_user_id as string | null) ?? null,
+    ).catch(() => null);
+    if (!extras) return store;
+    return {
+      ...store,
+      online: isOnline(extras.lastSeenAt),
+      lastSeenAt: extras.lastSeenAt,
+      stats: extras.stats,
+    };
+  }
 
   // No stores row — derive a STORE-shaped object from the users table.
   return resolveVirtualStoreFromUser(admin, uid);
+}
+
+/**
+ * Presence + header aggregates for a store page.
+ *
+ * Deliberately a handful of small queries instead of one clever aggregate RPC:
+ * the shape is easy to verify by eye, and this page is not hot. Orders are
+ * capped at 2000 rows — beyond that the average is already stable, and an
+ * unbounded scan on a busy store would be the only thing on this page that
+ * could get slow.
+ */
+async function loadStoreExtras(
+  storeId: string,
+  ownerUserId: string | null,
+): Promise<{ lastSeenAt: string | null; stats: StoreStats }> {
+  const admin = supabaseAdminClient();
+
+  const [userRes, ordersRes, productsRes] = await Promise.all([
+    ownerUserId
+      ? admin.from("users").select("last_seen_at").eq("id", ownerUserId).maybeSingle()
+      : Promise.resolve({ data: null as { last_seen_at?: string | null } | null }),
+    admin
+      .from("orders")
+      .select("id, status, amount")
+      .eq("store_id", storeId)
+      .limit(2000),
+    admin
+      .from("products")
+      .select("id", { count: "exact", head: true })
+      .eq("store_id", storeId),
+  ]);
+
+  const lastSeenAt = userRes.data?.last_seen_at ?? null;
+  const orders = (ordersRes.data ?? []) as Array<{
+    id: string;
+    status: string;
+    amount: string | number | null;
+  }>;
+
+  const done = orders.filter((o) => o.status === "DONE");
+  const totalMicro = done.reduce((sum, o) => sum + Number(o.amount ?? 0), 0);
+  const avgOrderUsdc = done.length > 0 ? microToDecimal(Math.round(totalMicro / done.length)) : 0;
+
+  let openDisputes = 0;
+  let avgDisputeMinutes: number | null = null;
+  const orderIds = orders.map((o) => o.id);
+  if (orderIds.length > 0) {
+    const { data: disputes } = await admin
+      .from("disputes")
+      .select("resolved_at, created_at")
+      .in("order_id", orderIds)
+      .limit(2000);
+    const rows = (disputes ?? []) as Array<{ resolved_at: string | null; created_at: string }>;
+    openDisputes = rows.filter((d) => !d.resolved_at).length;
+    const resolved = rows.filter((d) => !!d.resolved_at);
+    if (resolved.length > 0) {
+      const totalMs = resolved.reduce(
+        (sum, d) => sum + (Date.parse(d.resolved_at as string) - Date.parse(d.created_at)),
+        0,
+      );
+      avgDisputeMinutes = Math.max(0, Math.round(totalMs / resolved.length / 60_000));
+    }
+  }
+
+  return {
+    lastSeenAt,
+    stats: {
+      completedOrders: done.length,
+      avgOrderUsdc,
+      openDisputes,
+      avgDisputeMinutes,
+      products: productsRes.count ?? 0,
+    },
+  };
 }
 
 /**
@@ -65,7 +156,7 @@ async function resolveVirtualStoreFromUser(
   const at = "@" + bare;
   const { data: user } = await admin
     .from("users")
-    .select("uid, username, name, handle, role, avatar_url, avatar_gradient, banner_gradient, joined_at")
+    .select("uid, username, name, handle, role, avatar_url, avatar_gradient, banner_gradient, joined_at, last_seen_at")
     .or(`username.eq.${bare},username.eq.${at},uid.eq.${bare},handle.eq.${at}`)
     .limit(1)
     .maybeSingle();
@@ -83,6 +174,8 @@ async function resolveVirtualStoreFromUser(
       })
     : "";
 
+  const lastSeenAt = (user.last_seen_at as string | null) ?? null;
+
   return {
     name: identity.name,
     handle: identity.handle,
@@ -91,9 +184,13 @@ async function resolveVirtualStoreFromUser(
     banner: (user.banner_gradient as string | null) || null,
     rating: 0,
     ratingCount: 0,
-    online: true,
+    // Real presence even on the derived path — the user row carries it.
+    online: isOnline(lastSeenAt),
+    lastSeenAt,
     joined,
     message: null,
+    // No stores row ⇒ no store_id to aggregate orders/products against.
+    stats: { completedOrders: 0, avgOrderUsdc: 0, openDisputes: 0, avgDisputeMinutes: null, products: 0 },
   };
 }
 

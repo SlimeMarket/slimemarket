@@ -1009,11 +1009,19 @@ function App() {
       .then(profile => {
         if (!profile || !profile.name) return;
         const st = window.STORES || {};
-        const existing = st[name] || { name, online: true };
+        // Unknown presence must start as offline, not online: defaulting to
+        // `online: true` here is what made every store show a green dot even
+        // when the seller had not opened the app in a week.
+        const existing = st[name] || { name, online: false };
         window.STORES = {
           ...st,
           [name]: {
             ...existing,
+            // The route can be opened by uid (`/store/TWME`), but everything
+            // downstream — storeProducts(), the chat handoff, the header — keys
+            // off the display NAME. Without this the page rendered the uid as
+            // the store title and listed 0 products.
+            name: profile.name || existing.name,
             message: profile.message || existing.message || '',
             banner: profile.banner || existing.banner,
             avatar: profile.avatar || existing.avatar,
@@ -1022,6 +1030,10 @@ function App() {
             handle: profile.handle || existing.handle,
             uid: profile.uid || existing.uid,
             joined: profile.joined || existing.joined,
+            // Presence + header aggregates (POST /api/presence keeps this fresh).
+            online: profile.online === true,
+            lastSeenAt: profile.lastSeenAt || null,
+            stats: profile.stats || existing.stats || null,
           },
         };
         bumpCatalog();
@@ -1029,6 +1041,34 @@ function App() {
       .catch(() => { /* 404 / network — keep fabricated defaults */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selStore]);
+
+  // ---- Presence heartbeat -------------------------------------------------
+  // Store pages read `users.last_seen_at` to decide between "Online now" and
+  // "Active 2h ago". Without a heartbeat that column only moves on profile
+  // edits, so every seller would read as offline. Pings on boot, every 60s
+  // while the tab is visible, and on refocus. A hidden tab deliberately stops
+  // pinging: a background tab is not "available to chat".
+  useEffect(() => {
+    if (!authed) return;
+    let alive = true;
+    const ping = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!window.ME || !window.ME.id) return;
+      fetch((window.SLIME_API || '') + '/api/presence', { method: 'POST', credentials: 'include' })
+        .catch(() => { /* decorative — a failed ping must never surface */ });
+    };
+    ping();
+    const timer = setInterval(() => { if (alive) ping(); }, 60000);
+    const onVisible = () => { if (document.visibilityState === 'visible') ping(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [authed]);
 
   // My Orders — re-fetch every time the view opens. The list used to keep
   // whatever it held when the app booted, so an order created seconds earlier

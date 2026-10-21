@@ -230,6 +230,63 @@ function Usdc({ value, className = '', sign = '', size = '' }) {
   );
 }
 
+
+// ---------- Presence ----------
+// "Online" is derived from users.last_seen_at (lib/presence/window.ts): the SPA
+// pings /api/presence every 60s while the tab is visible, and anything older
+// than two minutes reads as offline. The label is relative on purpose —
+// "Active 2h ago" tells a buyer whether a message will land today, which a bare
+// grey dot does not.
+function presenceLabel(lastSeenAt, online) {
+  if (online) return tr('presence.online', 'Online now');
+  if (!lastSeenAt) return tr('presence.never', 'Not active yet');
+  const t = Date.parse(lastSeenAt);
+  if (Number.isNaN(t)) return tr('presence.never', 'Not active yet');
+  const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (mins < 1) return tr('presence.justNow', 'Active just now');
+  if (mins < 60) return tr('presence.minsAgo', 'Active {n}m ago').replace('{n}', String(mins));
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return tr('presence.hoursAgo', 'Active {n}h ago').replace('{n}', String(hours));
+  const days = Math.round(hours / 24);
+  if (days < 7) return tr('presence.daysAgo', 'Active {n}d ago').replace('{n}', String(days));
+  const on = new Date(t).toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
+  return tr('presence.lastOn', 'Last active {d}').replace('{d}', on);
+}
+
+function PresenceDot({ online, size = 8, ring = true, className = '' }) {
+  return (
+    <span className={'relative inline-flex shrink-0 ' + className} style={{ width: size, height: size }} aria-hidden="true">
+      {online && ring && (
+        <span className="absolute inset-0 rounded-full bg-emerald-400/60 animate-ping" />
+      )}
+      <span
+        className={'relative inline-block rounded-full ' + (online ? 'bg-emerald-400' : 'bg-arc-faint/50')}
+        style={{ width: size, height: size }}
+      />
+    </span>
+  );
+}
+
+function PresencePill({ online, lastSeenAt, className = '' }) {
+  const label = presenceLabel(lastSeenAt, online);
+  return (
+    <span
+      className={
+        'inline-flex items-center gap-2 rounded-full px-2.5 py-1 ring-1 text-[11px] font-medium ' +
+        (online
+          ? 'bg-emerald-400/10 ring-emerald-400/30 text-emerald-300'
+          : 'bg-arc-surface2/60 ring-arc-border text-arc-muted') +
+        ' ' + className
+      }
+    >
+      <PresenceDot online={online} size={7} />
+      <span className="whitespace-nowrap">{label}</span>
+    </span>
+  );
+}
+
+Object.assign(window, { presenceLabel, PresenceDot, PresencePill });
+
 Object.assign(window, {
   Icon, SlimeLogo, Pixel, Btn, PixBadge, DeliveryBadge, STATUS_META,
   StatusPill, Avatar, Stars, Modal, Card, CopyChip, Usdc, ImageUpload,
