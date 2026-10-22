@@ -7,6 +7,8 @@ export interface RecentSale {
   buyerAnon: string;
   amount: number;
   time: string;
+  /** ISO timestamp — lets the client render "2h ago" instead of a fixed label. */
+  createdAt: string;
 }
 
 function censorName(name: string): string {
@@ -46,6 +48,7 @@ export async function getRecentSales(limit = 10): Promise<RecentSale[]> {
     storeName: storeMap.get(o.store_id) ?? "Unknown",
     buyerAnon: buyerMap.get(o.buyer_id) ?? "Anon***",
     amount: Number(BigInt(o.amount as string)) / 1_000_000,
+    createdAt: new Date(o.created_at).toISOString(),
     time: new Date(o.created_at).toLocaleString("en-US", {
       day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
     }),

@@ -2233,6 +2233,7 @@ function App() {
             {view === 'product' && <ProductDetail product={selProduct} onBuy={goAuth} onStore={openStore} onBack={back} onChat={goAuth} />}
             {view === 'store' && <StorePage storeName={selStore} reviews={storeReviews[selStore]} onProduct={openProduct} onBuy={goAuth} onChat={goAuth} onBack={back} />}
           </main>
+          <SiteFooter />
         </div>
         <Toast toast={toast} />
       </div>
@@ -2323,6 +2324,9 @@ function App() {
             </div>
           )}
         </main>
+        {/* Footer everywhere except the immersive rooms, where a footer under a
+            full-height chat / deal layout just gets in the way. */}
+        {!['dm', 'dealroom', 'mm', 'orderdetail', 'auth'].includes(view) && <SiteFooter />}
       </div>
 
       <CheckoutModal open={!!checkout} product={checkout} onClose={() => setCheckout(null)} onPay={handlePay} />

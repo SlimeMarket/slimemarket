@@ -46,6 +46,11 @@ export const PUBLIC_API_PREFIXES = [
   // scoped to the session inside the route, so no one can read someone else's
   // order through it.
   "/api/search",
+  // Public counters for the home page pulse widget (members / sellers / sales /
+  // online). Aggregate only — no identifiers. Same class of mistake as
+  // /api/sales/recent below: without this entry the widget 401s for guests and
+  // the whole strip silently disappears for the audience that needs it most.
+  "/api/stats",
   "/api/stores",
   // The landing page renders a "recent sales" ticker and calls this on every
   // load, including for logged-out visitors. It was missing here, so the request
